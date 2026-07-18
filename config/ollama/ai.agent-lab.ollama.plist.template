@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>ai.agent-lab.ollama</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/opt/homebrew/opt/ollama/bin/ollama</string>
+    <string>serve</string>
+  </array>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>AGENT_LAB_MANAGED_OLLAMA</key>
+    <string>1</string>
+    <key>OLLAMA_HOST</key>
+    <string>127.0.0.1:11434</string>
+    <key>OLLAMA_MAX_LOADED_MODELS</key>
+    <string>1</string>
+    <key>OLLAMA_NO_CLOUD</key>
+    <string>1</string>
+  </dict>
+  <key>KeepAlive</key>
+  <true/>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>ProcessType</key>
+  <string>Interactive</string>
+  <key>ThrottleInterval</key>
+  <integer>10</integer>
+  <key>StandardOutPath</key>
+  <string>__AGENT_LAB_HOME__/.agent-lab/logs/ollama.stdout.log</string>
+  <key>StandardErrorPath</key>
+  <string>__AGENT_LAB_HOME__/.agent-lab/logs/ollama.stderr.log</string>
+</dict>
+</plist>

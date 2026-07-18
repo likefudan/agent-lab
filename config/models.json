@@ -1,0 +1,290 @@
+{
+  "schema_version": 1,
+  "qualified_runtime": {
+    "component": "ollama",
+    "version": "0.32.1",
+    "host_record": "docs/decisions/0001-host-baseline.md",
+    "runtime_record": "docs/decisions/0002-ollama-compatibility.md"
+  },
+  "defaults": {
+    "chat": "qwen-9b",
+    "fast": "qwen-4b",
+    "coding": "gemma-12b",
+    "vision": "gemma-12b"
+  },
+  "rag": {
+    "qualified_component": {
+      "component": "open-webui",
+      "version": "0.10.2",
+      "oci_index_digest": "sha256:9fcea9c6e32ab60b0498f3986c6cdf651ddbe61db48d2213a3d28048ddd673d4",
+      "linux_arm64_digest": "sha256:0d58a66704d69e52da83f72bcd43869ad4fd0c761313778bc95ef6940a0b81e3"
+    },
+    "embedding": {
+      "engine": "",
+      "model_id": "sentence-transformers/all-MiniLM-L6-v2",
+      "revision": "1110a243fdf4706b3f48f1d95db1a4f5529b4d41",
+      "license": "Apache-2.0",
+      "dimensions": 384,
+      "cache_path": "/app/backend/data/cache/embedding/models/models--sentence-transformers--all-MiniLM-L6-v2",
+      "snapshot_bytes": 91578225,
+      "snapshot_tree_digest": {
+        "algorithm": "sha256(sorted(path, byte_count, content_sha256) lines, with trailing newline)",
+        "digest": "sha256:065c71c5a0d43f37f21ac7f6eddec9a25aff5d7f2ccbfb3021f776f525669f51",
+        "file_count": 10
+      },
+      "weights": {
+        "file": "model.safetensors",
+        "bytes": 90868376,
+        "sha256": "53aa51172d142c89d9012cce15ae4d6cc0ca6895895114379cacb4fab128d9db"
+      },
+      "auto_update": false,
+      "qualification_status": "approved_fixed_corpus",
+      "qualification": {
+        "queryable_cases": 7,
+        "top_1_passes": 7,
+        "top_3_passes": 7,
+        "citation_source_passes": 7,
+        "mean_reciprocal_rank": 1.0,
+        "offline_local_files_only": "pass",
+        "offline_open_webui_cold_start": "pass",
+        "process_peak_rss_mib": 633.0,
+        "load_seconds": 0.05,
+        "encode_64_seconds": 0.0535
+      }
+    },
+    "reranking": {
+      "enabled": false,
+      "engine": "",
+      "model_id": "",
+      "auto_update": false,
+      "decision": "disabled_no_measurable_gain_available_over_perfect_embedding_baseline",
+      "enablement_threshold": {
+        "minimum_top_1_percentage_point_gain": 10,
+        "or_minimum_mean_reciprocal_rank_gain": 0.05
+      }
+    }
+  },
+  "models": [
+    {
+      "alias": "qwen-4b-mlx-rejected",
+      "tag": "qwen3.5:4b-mlx",
+      "executable": false,
+      "qualification_status": "rejected_missing_required_vision_behavior",
+      "source": "https://ollama.com/library/qwen3.5:4b-mlx",
+      "manifest_digest": "sha256:61aa3858e9d3022e8fca725550089addd9289c4446f33bd09dfd12f95f2a6792",
+      "blob_digest_set": {
+        "algorithm": "sha256(sorted(layer_digest) joined by newline, with trailing newline)",
+        "digest": "sha256:d27c96b3ef00a18a56ce42835712550efe98996d9129201485a5dbf3e40dd8f9",
+        "count": 731,
+        "config_digest": "sha256:2dacb491745bc7b2a481550d5b44d5737b0bde4ab1bd8f8d360d33e76a65fd3b",
+        "license_digest": "sha256:5f3a3c817e78f5b8a4ad2d2c458a3e4b2cce470d6c12642c4eeb12cb8a9bf51d",
+        "parameters_digest": "sha256:86eff881e8d2c2b1caa3966ba775d007f76a693d8541d0973b1bd2aab4214a43"
+      },
+      "artifact_bytes": 3973305013,
+      "parameters": 4538986496,
+      "quantization": "nvfp4",
+      "context_limit": 262144,
+      "declared_capabilities": ["completion", "vision", "thinking", "tools"],
+      "verified_capabilities": ["completion", "tools", "code_repair"],
+      "required_capabilities": ["completion", "vision", "tools", "code_repair"],
+      "license": "Apache-2.0",
+      "minimum_ollama_version": "0.19.0",
+      "qualification": {
+        "text": "pass",
+        "code_repair": "pass",
+        "tool_call": "pass",
+        "vision": "fail_image_input_ignored",
+        "load_seconds": 1.442346083,
+        "text_tokens_per_second": 19.287,
+        "peak_memory_gib": 3.99,
+        "processor": "100% GPU",
+        "loaded_size_gib": 3.4,
+        "disk_free_kib_before_pull": 658337568,
+        "disk_free_kib_after_pull": 654346632
+      }
+    },
+    {
+      "alias": "qwen-9b-mlx-rejected",
+      "tag": "qwen3.5:9b-mlx",
+      "executable": false,
+      "qualification_status": "rejected_missing_required_vision_behavior",
+      "source": "https://ollama.com/library/qwen3.5:9b-mlx",
+      "manifest_digest": "sha256:203e30078279db51132b9e026ceb7bb21330e5b1af67ef190671b375c9770404",
+      "blob_digest_set": {
+        "algorithm": "sha256(sorted(layer_digest) joined by newline, with trailing newline)",
+        "digest": "sha256:688fe0b3b1991c34f5801e2e5cc1664d44d17171b08f1626237a75fbd04bc1bf",
+        "count": 768,
+        "config_digest": "sha256:2dacb491745bc7b2a481550d5b44d5737b0bde4ab1bd8f8d360d33e76a65fd3b",
+        "license_digest": "sha256:5f3a3c817e78f5b8a4ad2d2c458a3e4b2cce470d6c12642c4eeb12cb8a9bf51d",
+        "parameters_digest": "sha256:86eff881e8d2c2b1caa3966ba775d007f76a693d8541d0973b1bd2aab4214a43"
+      },
+      "artifact_bytes": 8903014758,
+      "parameters": 9409468800,
+      "quantization": "nvfp4",
+      "context_limit": 262144,
+      "declared_capabilities": ["completion", "vision", "thinking", "tools"],
+      "verified_capabilities": ["completion", "tools", "code_repair"],
+      "required_capabilities": ["completion", "vision", "tools", "code_repair"],
+      "license": "Apache-2.0",
+      "minimum_ollama_version": "0.19.0",
+      "qualification": {
+        "text": "pass",
+        "code_repair": "pass",
+        "tool_call": "pass",
+        "vision": "fail_image_input_ignored",
+        "load_seconds": 3.68998625,
+        "text_tokens_per_second": 7.047,
+        "peak_memory_gib": 8.28,
+        "processor": "100% GPU",
+        "loaded_size_gib": 8.1,
+        "disk_free_kib_before_pull": 652059940,
+        "disk_free_kib_after_pull": 633744432
+      }
+    },
+    {
+      "alias": "gemma-12b-mlx-rejected",
+      "tag": "gemma4:12b-mlx",
+      "executable": false,
+      "qualification_status": "rejected_missing_required_vision_capability",
+      "source": "https://ollama.com/library/gemma4:12b-mlx",
+      "manifest_digest": "sha256:117d0d84cf2ab865feb59afc2cd30ff5d55f0035e05eb8d1b814f9688e3f3671",
+      "blob_digest_set": {
+        "algorithm": "sha256(sorted(layer_digest) joined by newline, with trailing newline)",
+        "digest": "sha256:2e3e092e556d51991ac12cf8f0a22e2f6832837fa7224b2ba555bcdc49bbd52f",
+        "count": 737,
+        "config_digest": "sha256:f6127828935e1bbad24332791878195199fcd59d6bea8cc31b8477854680a6ea",
+        "license_digest": "sha256:0d542e0c8804e39aa7f37eb00da5a762149dc682d7829451287e11b938e94594",
+        "parameters_digest": "sha256:56380ca2ab89f1f68c283f4d50863c0bcab52ae3f1b9a88e4ab5617b176f71a3"
+      },
+      "artifact_bytes": 7651251181,
+      "parameters": 12382568756,
+      "quantization": "nvfp4",
+      "context_limit": 262144,
+      "declared_capabilities": ["completion", "tools", "thinking"],
+      "verified_capabilities": ["completion", "tools", "code_repair"],
+      "required_capabilities": ["completion", "vision", "tools", "code_repair"],
+      "license": "Apache-2.0",
+      "minimum_ollama_version": "0.31.0",
+      "qualification": {
+        "text": "pass",
+        "code_repair": "pass",
+        "tool_call": "pass",
+        "vision": "fail_capability_absent_and_image_input_ignored",
+        "load_seconds": 2.627766375,
+        "text_tokens_per_second": 8.991,
+        "peak_memory_gib": 7.37,
+        "processor": "100% GPU",
+        "loaded_size_gib": 7.6,
+        "disk_free_kib_before_pull": 624712616,
+        "disk_free_kib_after_pull": 617446172
+      }
+    },
+    {
+      "alias": "qwen-4b",
+      "tag": "qwen3.5:4b",
+      "executable": true,
+      "qualification_status": "approved_text_code_tools_only",
+      "source": "https://ollama.com/library/qwen3.5:4b",
+      "manifest_digest": "sha256:2a654d98e6fba55d452b7043684e9b57a947e393bbffa62485a7aac05ee4eefd",
+      "blobs": [
+        {"digest": "sha256:81fb60c7daa80fc1123380b98970b320ae233409f0f71a72ed7b9b0d62f40490", "size": 3389971840, "type": "model"},
+        {"digest": "sha256:7339fa418c9ad3e8e12e74ad0fd26a9cc4be8703f9c110728a992b193be85cb2", "size": 11355, "type": "license"},
+        {"digest": "sha256:9371364b27a52acac9d87f88bd93c9db1174d8d6ec57f6888925cdc1788871ff", "size": 65, "type": "parameters"},
+        {"digest": "sha256:de9fed2251b37295b763727a59ca35cf5cfe5c7379bc3e2104b2ce3c145aa887", "size": 475, "type": "config"}
+      ],
+      "artifact_bytes": 3389983735,
+      "parameters": 4659865088,
+      "quantization": "Q4_K_M",
+      "context_limit": 262144,
+      "capabilities": {"text": true, "code": true, "tools": true, "vision": false},
+      "license": "Apache-2.0",
+      "minimum_ollama_version": "0.17.1",
+      "inference": {"temperature": 0, "context": 4096, "openai_max_tokens_minimum": 1024},
+      "qualification": {
+        "text": "pass",
+        "code_repair_native": "pass",
+        "code_repair_openai": "pass_with_1024_token_budget",
+        "tool_call": "pass",
+        "vision": "unsupported_failed_exact_ocr",
+        "vision_observation": {"shape": "Triangle", "color": "#0f58d9", "code": "A4E2"},
+        "load_seconds": 2.006946958,
+        "text_tokens_per_second": 36.638,
+        "resident_size_gib": 3.2,
+        "processor": "100% GPU",
+        "disk_free_kib_before_pull": 623332748,
+        "disk_free_kib_after_pull": 620018640
+      }
+    },
+    {
+      "alias": "qwen-9b",
+      "tag": "qwen3.5:9b",
+      "executable": true,
+      "qualification_status": "approved_text_code_tools_only",
+      "source": "https://ollama.com/library/qwen3.5:9b",
+      "manifest_digest": "sha256:6488c96fa5faab64bb65cbd30d4289e20e6130ef535a93ef9a49f42eda893ea7",
+      "blobs": [
+        {"digest": "sha256:dec52a44569a2a25341c4e4d3fee25846eed4f6f0b936278e3a3c900bb99d37c", "size": 6594462816, "type": "model"},
+        {"digest": "sha256:7339fa418c9ad3e8e12e74ad0fd26a9cc4be8703f9c110728a992b193be85cb2", "size": 11355, "type": "license"},
+        {"digest": "sha256:9371364b27a52acac9d87f88bd93c9db1174d8d6ec57f6888925cdc1788871ff", "size": 65, "type": "parameters"},
+        {"digest": "sha256:be595b49fe22012bd1f5605ec14c7ffa58331783a88a4fd8c22e5fc8ec42cf9f", "size": 475, "type": "config"}
+      ],
+      "artifact_bytes": 6594474711,
+      "parameters": 9653104368,
+      "quantization": "Q4_K_M",
+      "context_limit": 262144,
+      "capabilities": {"text": true, "code": true, "tools": true, "vision": false},
+      "license": "Apache-2.0",
+      "minimum_ollama_version": "0.17.1",
+      "inference": {"temperature": 0, "context": 4096, "openai_max_tokens_minimum": 1024},
+      "qualification": {
+        "text": "pass",
+        "code_repair_openai": "pass",
+        "tool_call": "pass",
+        "vision": "unsupported_failed_exact_ocr",
+        "vision_observation": {"shape": "triangle", "color": "blue", "code": "A123456"},
+        "load_seconds": 2.743257333,
+        "text_tokens_per_second": 19.404,
+        "resident_size_gib": 5.6,
+        "processor": "100% GPU",
+        "disk_free_kib_before_pull": 620017976,
+        "disk_free_kib_after_pull": 613542344
+      }
+    },
+    {
+      "alias": "gemma-12b",
+      "tag": "gemma4:12b",
+      "executable": true,
+      "qualification_status": "approved_multimodal",
+      "source": "https://ollama.com/library/gemma4:12b",
+      "manifest_digest": "sha256:4eb23ef187e2c5462566d6a1d3bbbc2f1346d0b4327cbb66d58fffbcc9b2b05c",
+      "blobs": [
+        {"digest": "sha256:1278394b693672ac2799eadc9a83fd98259a6a88a40acfb1dcaa6c6fc895a606", "size": 7381382048, "type": "model"},
+        {"digest": "sha256:675ad6e68101ca9413ec806855c452362f0213f2dfc5800996b086fdb8119842", "size": 175115584, "type": "projector"},
+        {"digest": "sha256:0d542e0c8804e39aa7f37eb00da5a762149dc682d7829451287e11b938e94594", "size": 10174, "type": "license"},
+        {"digest": "sha256:56380ca2ab89f1f68c283f4d50863c0bcab52ae3f1b9a88e4ab5617b176f71a3", "size": 42, "type": "parameters"},
+        {"digest": "sha256:c805f5b265d8e695c44f4065dfc368206cd8026447604925fef8db57ee32ee23", "size": 548, "type": "config"}
+      ],
+      "artifact_bytes": 7556508396,
+      "parameters": 11907350576,
+      "quantization": "Q4_K_M",
+      "context_limit": 262144,
+      "capabilities": {"text": true, "code": true, "tools": true, "vision": true, "audio": false},
+      "license": "Apache-2.0",
+      "minimum_ollama_version": "0.30.5",
+      "inference": {"temperature": 0, "context": 4096, "openai_max_tokens_minimum": 1024},
+      "qualification": {
+        "text": "pass",
+        "code_repair_openai": "pass",
+        "tool_call": "pass",
+        "vision": "pass",
+        "vision_observation": {"shape": "triangle", "color": "blue", "code": "AGENT 42"},
+        "load_seconds": 2.076727667,
+        "text_tokens_per_second": 15.341,
+        "resident_size_gib": 8.0,
+        "processor": "100% GPU",
+        "disk_free_kib_before_pull": 613536912,
+        "disk_free_kib_after_pull": 606069596
+      }
+    }
+  ]
+}

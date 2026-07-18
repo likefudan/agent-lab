@@ -1,0 +1,236 @@
+{
+  "schema_version": 1,
+  "corpus_id": "agent-lab-rag-v1",
+  "fixture_root": "tests/fixtures/rag",
+  "license": "CC0-1.0",
+  "citation_contract": {
+    "required_fields": [
+      "source.name",
+      "document",
+      "metadata"
+    ],
+    "source_match_field": "source.name"
+  },
+  "fixtures": [
+    {
+      "id": "operations",
+      "path": "operations.md",
+      "media_type": "text/markdown",
+      "bytes": 293,
+      "sha256": "4ea518170b2cb2b5e03e06edd138e8671619edb5e56a65927cb4f411b751112e",
+      "source_label": "RAG-SOURCE-OPERATIONS",
+      "answer_token": "ASTER-4821",
+      "license": "CC0-1.0",
+      "generation_method": "self-authored UTF-8 Markdown",
+      "role": "queryable"
+    },
+    {
+      "id": "privacy_offline",
+      "path": "privacy-offline.md",
+      "media_type": "text/markdown",
+      "bytes": 290,
+      "sha256": "64f2362fce982678b3e3fb52f889177dabe6f8356d2728f2db686a7dd1a8bbe1",
+      "source_label": "RAG-SOURCE-PRIVACY-OFFLINE",
+      "answer_token": "QUIET-3064",
+      "license": "CC0-1.0",
+      "generation_method": "self-authored UTF-8 Markdown",
+      "role": "queryable_near_duplicate"
+    },
+    {
+      "id": "privacy_online",
+      "path": "privacy-online.md",
+      "media_type": "text/markdown",
+      "bytes": 303,
+      "sha256": "2784564af32d296ef95dae8309cc5e05575aeed26d316ae2a26ce1049020995c",
+      "source_label": "RAG-SOURCE-PRIVACY-ONLINE",
+      "answer_token": "NOVA-7392",
+      "license": "CC0-1.0",
+      "generation_method": "self-authored UTF-8 Markdown",
+      "role": "queryable_near_duplicate"
+    },
+    {
+      "id": "token_router",
+      "path": "token_router.py",
+      "media_type": "text/x-python",
+      "bytes": 271,
+      "sha256": "e44896554932a1b59720e88b851c3d0ca53e48d1a3d9009e5a506259e186a10d",
+      "source_label": "RAG-SOURCE-TOKEN-ROUTER",
+      "answer_token": "COBALT-9137",
+      "license": "CC0-1.0",
+      "generation_method": "self-authored UTF-8 Python source",
+      "role": "queryable"
+    },
+    {
+      "id": "archive_pdf",
+      "path": "archive-handbook.pdf",
+      "media_type": "application/pdf",
+      "bytes": 1840,
+      "sha256": "9302f81d6be4f8fffa9791295f816de397164f5867f7484e42c401d66734a1f1",
+      "source_label": "RAG-SOURCE-ARCHIVE-PDF",
+      "answer_token": "LANTERN-2746",
+      "license": "CC0-1.0",
+      "generation_method": "ReportLab 4.4.9 invariant canvas with extractable text",
+      "role": "queryable"
+    },
+    {
+      "id": "vision_card",
+      "path": "vision-card.png",
+      "media_type": "image/png",
+      "bytes": 26682,
+      "sha256": "7ac30cd1148db966faa6d64fba5bc93deed8a2fee78825d46b992b307961ee3b",
+      "source_label": "RAG-SOURCE-VISION-CARD",
+      "answer_token": "PIXEL-6158",
+      "license": "CC0-1.0",
+      "generation_method": "Pillow 12.2.0 RGB raster with macOS Helvetica",
+      "role": "vision_control"
+    },
+    {
+      "id": "scanned_pdf",
+      "path": "scanned-card.pdf",
+      "media_type": "application/pdf",
+      "bytes": 56249,
+      "sha256": "58aa2502fd7c1d11f6da4463a8100c8644f6698c99089ec2a3f816f0a60578cf",
+      "source_label": "RAG-SOURCE-SCANNED-CARD",
+      "answer_token": "SCAN-8842",
+      "license": "CC0-1.0",
+      "generation_method": "Pillow 12.2.0 raster embedded by ReportLab 4.4.9 invariant canvas",
+      "role": "extraction_control"
+    },
+    {
+      "id": "irrelevant_garden",
+      "path": "irrelevant-garden.md",
+      "media_type": "text/markdown",
+      "bytes": 311,
+      "sha256": "e51df19f1bbed435544a1d5b7c4ebd7c02b27e90b2e2e2d56110aff4aeb69718",
+      "source_label": "RAG-SOURCE-IRRELEVANT-GARDEN",
+      "answer_token": "MOSS-5503",
+      "license": "CC0-1.0",
+      "generation_method": "self-authored UTF-8 Markdown",
+      "role": "irrelevant_distractor"
+    }
+  ],
+  "cases": [
+    {
+      "id": "markdown_battery_threshold",
+      "evaluation_scope": "queryable_rag",
+      "question": "At what battery percentage does the Atlas field console begin preservation mode, and what is its confirmation token?",
+      "expected_answer_facts": [
+        "37 percent",
+        "ASTER-4821"
+      ],
+      "expected_source": "operations.md",
+      "acceptable_top_k": 3,
+      "forbidden_sources_above_expected": [
+        "irrelevant-garden.md"
+      ],
+      "required_citation_fields": [
+        "source.name",
+        "document",
+        "metadata"
+      ]
+    },
+    {
+      "id": "near_duplicate_offline_policy",
+      "evaluation_scope": "queryable_rag",
+      "question": "Which policy token belongs specifically to the strict offline profile that blocks every outbound search request?",
+      "expected_answer_facts": [
+        "QUIET-3064"
+      ],
+      "expected_source": "privacy-offline.md",
+      "acceptable_top_k": 3,
+      "forbidden_sources_above_expected": [
+        "privacy-online.md",
+        "irrelevant-garden.md"
+      ],
+      "required_citation_fields": [
+        "source.name",
+        "document",
+        "metadata"
+      ]
+    },
+    {
+      "id": "near_duplicate_online_policy",
+      "evaluation_scope": "queryable_rag",
+      "question": "Which policy token belongs specifically to the profile that permits search after the user explicitly selects web search?",
+      "expected_answer_facts": [
+        "NOVA-7392"
+      ],
+      "expected_source": "privacy-online.md",
+      "acceptable_top_k": 3,
+      "forbidden_sources_above_expected": [
+        "privacy-offline.md",
+        "irrelevant-garden.md"
+      ],
+      "required_citation_fields": [
+        "source.name",
+        "document",
+        "metadata"
+      ]
+    },
+    {
+      "id": "code_rotation_window",
+      "evaluation_scope": "queryable_rag",
+      "question": "What value does rotation_window_minutes return, and what verification token appears beside it?",
+      "expected_answer_facts": [
+        "43",
+        "COBALT-9137"
+      ],
+      "expected_source": "token_router.py",
+      "acceptable_top_k": 3,
+      "forbidden_sources_above_expected": [
+        "irrelevant-garden.md"
+      ],
+      "required_citation_fields": [
+        "source.name",
+        "document",
+        "metadata"
+      ]
+    },
+    {
+      "id": "text_pdf_archive_time",
+      "evaluation_scope": "queryable_rag",
+      "question": "When does the verified archive job begin, and what is its confirmation token?",
+      "expected_answer_facts": [
+        "04:17 local time",
+        "LANTERN-2746"
+      ],
+      "expected_source": "archive-handbook.pdf",
+      "acceptable_top_k": 3,
+      "forbidden_sources_above_expected": [
+        "irrelevant-garden.md"
+      ],
+      "required_citation_fields": [
+        "source.name",
+        "document",
+        "metadata"
+      ]
+    },
+    {
+      "id": "image_direct_vision_control",
+      "evaluation_scope": "vision_control",
+      "question": "Read the beacon channel and token shown in this image.",
+      "expected_answer_facts": [
+        "18",
+        "PIXEL-6158"
+      ],
+      "expected_source": "vision-card.png",
+      "acceptable_top_k": null,
+      "required_citation_fields": [],
+      "rag_denominator": false
+    },
+    {
+      "id": "scanned_pdf_extraction_control",
+      "evaluation_scope": "extraction_control",
+      "question": "What locker bay and token are printed in the scanned card?",
+      "expected_answer_facts": [
+        "27",
+        "SCAN-8842"
+      ],
+      "expected_source": "scanned-card.pdf",
+      "acceptable_top_k": null,
+      "required_citation_fields": [],
+      "expected_builtin_text_extraction": false,
+      "rag_denominator": false
+    }
+  ]
+}

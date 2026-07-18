@@ -67,6 +67,7 @@ logs/
 # Editor metadata
 .idea/
 .vscode/
+.cursor/
 *.swp
 *.swo
 *~

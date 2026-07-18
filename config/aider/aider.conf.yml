@@ -1,0 +1,43 @@
+# Agent Lab's Aider seed talks only to Ollama's loopback OpenAI-compatible API.
+model: openai/gemma4:12b
+weak-model: openai/gemma4:12b
+openai-api-base: http://127.0.0.1:11434/v1
+openai-api-key: ollama
+
+# Qualified for Gemma 4 12B through Ollama 0.32.1.
+edit-format: whole
+model-settings-file: .aider.model.settings.yml
+model-metadata-file: .aider.model.metadata.json
+show-model-warnings: false
+check-model-accepts-settings: false
+max-chat-history-tokens: 1024
+map-tokens: 0
+stream: false
+
+# Keep every mutation visible in the worktree for explicit review.
+git: true
+gitignore: false
+add-gitignore-files: false
+auto-commits: false
+dirty-commits: false
+attribute-author: false
+attribute-committer: false
+attribute-commit-message-author: false
+attribute-commit-message-committer: false
+attribute-co-authored-by: false
+auto-lint: false
+auto-test: false
+suggest-shell-commands: false
+
+# Offline-safe defaults: no analytics, updates, URL handling, or web helper install.
+analytics-disable: true
+check-update: false
+show-release-notes: false
+detect-urls: false
+disable-playwright: true
+cache-prompts: false
+restore-chat-history: false
+input-history-file: .agent-lab/aider/input.history
+chat-history-file: .agent-lab/aider/chat.history.md
+pretty: false
+notifications: false

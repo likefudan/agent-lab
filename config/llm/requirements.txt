@@ -1,0 +1,4 @@
+# Install both packages into one isolated uv tool environment:
+#   uv tool install --from 'llm==0.31.1' llm --with 'llm-ollama==0.16.1'
+llm==0.31.1
+llm-ollama==0.16.1

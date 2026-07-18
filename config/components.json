@@ -1,0 +1,128 @@
+{
+  "schema_version": 1,
+  "components": [
+    {
+      "id": "ollama",
+      "name": "Ollama",
+      "type": "native_inference_runtime",
+      "status": "mvp",
+      "version": "0.32.1",
+      "license": "MIT",
+      "source": {
+        "repository": "https://github.com/ollama/ollama",
+        "release": "https://github.com/ollama/ollama/releases/tag/v0.32.1",
+        "tag": "v0.32.1",
+        "revision": "30c390384e20333b67cadab60da5bcb669407f01"
+      },
+      "artifact": {
+        "distribution": "homebrew_bottle",
+        "platform": "arm64_tahoe",
+        "url": "https://ghcr.io/v2/homebrew/core/ollama/blobs/sha256:cfcacbdc44740a17b8221a16d90f600f6a88782fc3efd2dc073ebddd9cae180e",
+        "sha256": "cfcacbdc44740a17b8221a16d90f600f6a88782fc3efd2dc073ebddd9cae180e",
+        "executable_sha256": "8ac71f1dbc4ef2efb9f15257f016aca199e72a89b278c6af64b1d693dd442b15"
+      },
+      "platform": {
+        "os": "macos",
+        "architecture": "arm64",
+        "minimum_macos": "14.0",
+        "qualified_macos": "26.5.2",
+        "qualified_hardware": "Apple M5"
+      },
+      "endpoints": {
+        "bind": "127.0.0.1:11434",
+        "native_api": "http://127.0.0.1:11434/api",
+        "openai_api": "http://127.0.0.1:11434/v1",
+        "health": "http://127.0.0.1:11434/api/version"
+      },
+      "required_environment": {
+        "OLLAMA_HOST": "127.0.0.1:11434",
+        "OLLAMA_NO_CLOUD": "1",
+        "OLLAMA_MAX_LOADED_MODELS": "1"
+      },
+      "capabilities": {
+        "native_chat_api": "verified",
+        "openai_chat_completions": "verified",
+        "streaming": "verified_contract_model_test_pending",
+        "image_input": "verified_contract_model_test_pending",
+        "tool_calls": "verified_contract_model_test_pending",
+        "keep_alive": "verified",
+        "model_metadata": "verified",
+        "metal_device_discovery": "verified",
+        "mlx_model_inference": "model_test_pending"
+      },
+      "decision": "docs/decisions/0002-ollama-compatibility.md"
+    },
+    {
+      "id": "open-webui",
+      "name": "Open WebUI",
+      "type": "containerized_web_application",
+      "status": "mvp",
+      "version": "0.10.2",
+      "license": "Open WebUI License with prior MIT and BSD-3-Clause contributions",
+      "source": {
+        "repository": "https://github.com/open-webui/open-webui",
+        "release": "https://github.com/open-webui/open-webui/releases/tag/v0.10.2",
+        "tag": "v0.10.2",
+        "revision": "ecd48e2f718220a6400ecf49eafd4867a38feb10"
+      },
+      "artifact": {
+        "distribution": "oci_image",
+        "registry": "ghcr.io",
+        "repository": "open-webui/open-webui",
+        "reference": "ghcr.io/open-webui/open-webui@sha256:9fcea9c6e32ab60b0498f3986c6cdf651ddbe61db48d2213a3d28048ddd673d4",
+        "index_digest": "sha256:9fcea9c6e32ab60b0498f3986c6cdf651ddbe61db48d2213a3d28048ddd673d4",
+        "qualified_platform": "linux/arm64",
+        "qualified_platform_digest": "sha256:0d58a66704d69e52da83f72bcd43869ad4fd0c761313778bc95ef6940a0b81e3"
+      },
+      "platform": {
+        "container_runtime": "Docker Desktop 4.80.0",
+        "qualified_engine": "29.6.1",
+        "os": "linux",
+        "architecture": "arm64",
+        "qualified_host": "Apple M5 macOS 26.5.2"
+      },
+      "endpoints": {
+        "bind": "127.0.0.1:3000",
+        "container_port": 8080,
+        "url": "http://127.0.0.1:3000",
+        "health": "http://127.0.0.1:3000/health",
+        "ollama_from_container": "http://host.docker.internal:11434"
+      },
+      "storage": {
+        "volume": "agent-lab-open-webui-data",
+        "mount": "/app/backend/data",
+        "configuration": "database_backed_with_environment_seed_defaults"
+      },
+      "required_environment": {
+        "OLLAMA_BASE_URL": "http://host.docker.internal:11434",
+        "WEBUI_AUTH": "true",
+        "ENABLE_SIGNUP": "false",
+        "WEBUI_SECRET_KEY": "<generated-local-secret>",
+        "SCARF_NO_ANALYTICS": "true",
+        "DO_NOT_TRACK": "true",
+        "ANONYMIZED_TELEMETRY": "false"
+      },
+      "profile_environment": {
+        "OFFLINE_MODE": "true_when_offline",
+        "ENABLE_VERSION_UPDATE_CHECK": "false_when_offline",
+        "RAG_EMBEDDING_MODEL_AUTO_UPDATE": "false_when_offline",
+        "RAG_RERANKING_MODEL_AUTO_UPDATE": "false_when_offline",
+        "ENABLE_WEB_SEARCH": "false_when_offline"
+      },
+      "capabilities": {
+        "upstream_ui_unmodified": "verified",
+        "health_probe": "verified",
+        "bootstrap_admin": "verified",
+        "persistent_data_volume": "verified",
+        "ollama_host_bridge": "verified",
+        "local_model_request": "verified",
+        "built_in_rag_configuration": "verified_contract_model_selection_pending",
+        "hybrid_search_configuration": "verified_contract",
+        "reranking_configuration": "verified_contract_model_selection_pending",
+        "duckduckgo_web_search": "verified_contract_profile_configuration_pending",
+        "offline_and_update_controls": "verified_contract"
+      },
+      "decision": "docs/decisions/0004-open-webui-compatibility.md"
+    }
+  ]
+}

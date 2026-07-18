@@ -1,0 +1,47 @@
+{
+  "schema_version": 1,
+  "temperature": 0,
+  "seed": 42,
+  "cases": {
+    "text": {
+      "prompt": "Reply with exactly AGENT-LAB-OK and nothing else.",
+      "expected": "AGENT-LAB-OK"
+    },
+    "code_repair": {
+      "prompt": "Repair this Python function. Return only the complete function, with no Markdown: def add(a, b):\\n    return a - b",
+      "required_substring": "return a + b"
+    },
+    "vision": {
+      "image": "vision-card.svg.png",
+      "prompt": "Identify the large colored shape and transcribe the code printed below it. Reply as JSON with keys shape, color, and code.",
+      "expected": {
+        "shape": "triangle",
+        "color": "blue",
+        "code": "AGENT 42"
+      }
+    },
+    "tool_call": {
+      "prompt": "What is the weather in Paris? Use the weather tool. Do not answer from memory.",
+      "tool": {
+        "type": "function",
+        "function": {
+          "name": "get_weather",
+          "description": "Get current weather for a city",
+          "parameters": {
+            "type": "object",
+            "properties": {
+              "city": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "city"
+            ]
+          }
+        }
+      },
+      "expected_name": "get_weather",
+      "expected_city": "Paris"
+    }
+  }
+}

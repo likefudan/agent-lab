@@ -1,0 +1,5 @@
+{
+  "gemma-12b": "gemma4:12b",
+  "qwen-4b": "qwen3.5:4b",
+  "qwen-9b": "qwen3.5:9b"
+}

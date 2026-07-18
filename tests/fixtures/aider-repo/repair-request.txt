@@ -1,0 +1,3 @@
+Fix only calculator.py so all existing unittest tests pass. Keep the public API,
+docstring, tests, and every other file unchanged. Make the smallest possible
+repair. Do not create files, run commands, or commit.

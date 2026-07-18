@@ -1,0 +1,75 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+readonly EX_USAGE=64
+readonly EX_UNAVAILABLE=69
+readonly SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+readonly REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+
+usage() {
+  cat <<'EOF'
+Usage: agent-lab <command> [arguments]
+
+Commands:
+  doctor             Inspect prerequisites without changing the host
+  setup              Prepare local configuration and dependencies
+  start              Start the local Agent Lab stack
+  stop               Stop the managed Agent Lab stack
+  status             Show component and profile status
+  health             Run local health checks
+  models             List, verify, or pull approved models
+  backup             Back up non-reproducible local data
+  restore            Restore a validated backup
+  benchmark          Run local model benchmarks
+  offline verify     Verify core workflows without network access
+  help               Show this help
+EOF
+}
+
+fail_usage() {
+  printf 'agent-lab: %s\n\n' "$1" >&2
+  usage >&2
+  exit "$EX_USAGE"
+}
+
+dispatch() {
+  local script=$1
+  shift
+
+  if [[ ! -f "$script" ]]; then
+    printf 'agent-lab: command is not implemented yet: %s\n' "${script#"${REPO_ROOT}/"}" >&2
+    exit "$EX_UNAVAILABLE"
+  fi
+  if [[ ! -x "$script" ]]; then
+    printf 'agent-lab: command script is not executable: %s\n' "${script#"${REPO_ROOT}/"}" >&2
+    exit "$EX_UNAVAILABLE"
+  fi
+  exec "$script" "$@"
+}
+
+if [[ $# -eq 0 ]]; then
+  fail_usage 'missing command'
+fi
+
+command_name=$1
+shift
+
+case "$command_name" in
+  -h|--help|help)
+    [[ $# -eq 0 ]] || fail_usage 'help accepts no arguments'
+    usage
+    ;;
+  doctor|setup|start|stop|status|health|models|backup|restore|benchmark)
+    dispatch "${REPO_ROOT}/scripts/${command_name}.sh" "$@"
+    ;;
+  offline)
+    [[ $# -gt 0 ]] || fail_usage 'offline requires the verify subcommand'
+    offline_command=$1
+    shift
+    [[ "$offline_command" == verify ]] || fail_usage "unknown offline subcommand: ${offline_command}"
+    dispatch "${REPO_ROOT}/scripts/offline-verify.sh" "$@"
+    ;;
+  *)
+    fail_usage "unknown command: ${command_name}"
+    ;;
+esac

@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="640" height="480" viewBox="0 0 640 480">
+  <rect width="640" height="480" fill="white"/>
+  <path d="M320 65 L505 305 L135 305 Z" fill="#1261d5"/>
+  <text x="320" y="395" text-anchor="middle" font-family="Arial, sans-serif" font-size="58" font-weight="700" fill="black">AGENT 42</text>
+</svg>

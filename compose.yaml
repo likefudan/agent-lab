@@ -1,0 +1,63 @@
+name: agent-lab
+
+services:
+  open-webui:
+    image: ghcr.io/open-webui/open-webui@sha256:9fcea9c6e32ab60b0498f3986c6cdf651ddbe61db48d2213a3d28048ddd673d4
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${OPEN_WEBUI_PORT:-3000}:8080"
+    environment:
+      OLLAMA_BASE_URL: http://host.docker.internal:11434
+      ENABLE_OLLAMA_API: "true"
+      OLLAMA_API_CONFIGS: '{"0":{"enable":true,"connection_type":"local","model_ids":["qwen3.5:4b","qwen3.5:9b","gemma4:12b"]}}'
+      WEBUI_AUTH: "true"
+      ENABLE_SIGNUP: "false"
+      ENABLE_LOGIN_FORM: "true"
+      WEBUI_SECRET_KEY: "${WEBUI_SECRET_KEY:?Run config/open-webui/generate-env.sh before starting Open WebUI}"
+      WEBUI_ADMIN_EMAIL: "${WEBUI_ADMIN_EMAIL:-admin@localhost}"
+      WEBUI_ADMIN_NAME: "${WEBUI_ADMIN_NAME:-Agent Lab Admin}"
+      WEBUI_ADMIN_PASSWORD: "${WEBUI_ADMIN_PASSWORD:?Run config/open-webui/generate-env.sh before starting Open WebUI}"
+      VECTOR_DB: chroma
+      RAG_EMBEDDING_ENGINE: ""
+      RAG_EMBEDDING_MODEL: sentence-transformers/all-MiniLM-L6-v2
+      RAG_EMBEDDING_MODEL_AUTO_UPDATE: "false"
+      RAG_EMBEDDING_MODEL_TRUST_REMOTE_CODE: "false"
+      RAG_RERANKING_ENGINE: ""
+      RAG_RERANKING_MODEL: ""
+      RAG_RERANKING_MODEL_AUTO_UPDATE: "false"
+      ENABLE_RAG_HYBRID_SEARCH: "true"
+      RAG_HYBRID_BM25_WEIGHT: "0.5"
+      RAG_TOP_K: "5"
+      CHUNK_SIZE: "500"
+      CHUNK_OVERLAP: "50"
+      OFFLINE_MODE: "${OFFLINE_MODE:-false}"
+      ENABLE_VERSION_UPDATE_CHECK: "${ENABLE_VERSION_UPDATE_CHECK:-false}"
+      ENABLE_WEB_SEARCH: "${ENABLE_WEB_SEARCH:-false}"
+      WEB_SEARCH_ENGINE: "${WEB_SEARCH_ENGINE:-duckduckgo}"
+      SCARF_NO_ANALYTICS: "true"
+      DO_NOT_TRACK: "true"
+      ANONYMIZED_TELEMETRY: "false"
+    volumes:
+      - open-webui-data:/app/backend/data
+    healthcheck:
+      test:
+        - CMD
+        - curl
+        - --fail
+        - --silent
+        - --show-error
+        - http://127.0.0.1:8080/health
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"
+
+volumes:
+  open-webui-data:
+    name: agent-lab-open-webui-data
+    external: true

@@ -1,0 +1,3 @@
+# Install with Python 3.12 so pinned scientific dependencies resolve to wheels:
+#   uv tool install --python 3.12 'aider-chat==0.86.2'
+aider-chat==0.86.2

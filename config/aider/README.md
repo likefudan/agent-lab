@@ -1,0 +1,29 @@
+# Aider configuration seed
+
+This directory pins the repository-aware coding client and its qualified local
+model settings. Copy the three seed configuration files into the root of the
+Git repository where Aider will work:
+
+```sh
+cp /path/to/agent-lab/config/aider/aider.conf.yml .aider.conf.yml
+cp /path/to/agent-lab/config/aider/aider.model.settings.yml \
+  .aider.model.settings.yml
+cp /path/to/agent-lab/config/aider/aider.model.metadata.json \
+  .aider.model.metadata.json
+mkdir -p .agent-lab/aider
+```
+
+The seed selects `openai/gemma4:12b` through Ollama's loopback-only `/v1`
+endpoint. `ollama` is a local compatibility placeholder accepted as the OpenAI
+API key; it is not a secret or hosted credential. The 4,096-token context and
+1,024-token completion budget are the settings qualified by Agent Lab, not the
+artifact's theoretical maximum context.
+
+`whole` is the qualified edit format for the local Gemma model. Repository maps
+are disabled to preserve room in the tested context. Aider edits the worktree
+but never auto-commits, commits dirty state, modifies `.gitignore`, runs shell
+suggestions, or contacts analytics/update services. Review with `git diff` and
+run the repository's tests before committing yourself. Conversation history is
+written beneath the ignored `.agent-lab/aider/` runtime directory. Keep it and
+any copied local configuration private according to the target repository's
+policy; never add hosted API credentials to this seed.
