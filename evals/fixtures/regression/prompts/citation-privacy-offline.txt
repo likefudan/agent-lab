@@ -1,0 +1,11 @@
+Answer using only the excerpt. Reply with the policy token and the document filename.
+
+EXCERPT
+source.name: privacy-offline.md
+document: privacy-offline.md
+metadata: { "role": "queryable_near_duplicate" }
+The strict offline profile blocks every outbound search request.
+Policy token: QUIET-3064.
+
+QUESTION
+Which policy token belongs specifically to the strict offline profile that blocks every outbound search request? Name the document.

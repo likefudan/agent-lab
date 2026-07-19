@@ -1,0 +1,8 @@
+Using these web search results as temporary context (do not invent other sources):
+
+1. URL: https://www.iana.org/domains/reserved
+   Snippet: example.com, example.org, and example.net are reserved example domain names.
+
+QUESTION
+Which organization documents the reserved example domains such as example.com and example.org?
+Include the domain iana.org and the term example in your answer.

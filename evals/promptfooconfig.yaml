@@ -1,0 +1,72 @@
+# Agent Lab Promptfoo regression suite
+# Providers are local Ollama loopback only. sharing is disabled.
+# Filter with: --filter-metadata suite=fast
+# Never configure OpenAI/Anthropic/Promptfoo Cloud grading providers here.
+
+description: Agent Lab local model regressions
+tags:
+  project: agent-lab
+  evaluator: local-only
+sharing: false
+evaluateOptions:
+  maxConcurrency: 1
+  showProgressBar: true
+  cache: false
+
+env:
+  OLLAMA_BASE_URL: http://127.0.0.1:11434
+
+prompts:
+  - "{{prompt}}"
+
+providers:
+  - id: ollama:chat:qwen3.5:4b
+    label: qwen-4b
+    config:
+      temperature: 0
+      seed: 42
+      num_ctx: 4096
+      num_predict: 256
+      think: false
+      passthrough:
+        keep_alive: 0
+  - id: ollama:chat:qwen3.5:9b
+    label: qwen-9b
+    config:
+      temperature: 0
+      seed: 42
+      num_ctx: 4096
+      num_predict: 256
+      think: false
+      passthrough:
+        keep_alive: 0
+  - id: ollama:chat:gemma4:12b
+    label: gemma-12b
+    config:
+      temperature: 0
+      seed: 42
+      num_ctx: 4096
+      num_predict: 256
+      think: false
+      passthrough:
+        keep_alive: 0
+  - id: file://fixtures/regression/providers/ollama-tools.js
+    label: qwen-4b-tools
+    config:
+      model: qwen3.5:4b
+  - id: file://fixtures/regression/providers/ollama-tools.js
+    label: qwen-9b-tools
+    config:
+      model: qwen3.5:9b
+  - id: file://fixtures/regression/providers/ollama-tools.js
+    label: gemma-12b-tools
+    config:
+      model: gemma4:12b
+  - id: file://fixtures/regression/providers/ollama-vision.js
+    label: gemma-12b-vision
+
+# Explicitly omit defaultTest.options.provider so model-graded assertions
+# cannot silently fall back to a hosted evaluator. Suites use deterministic
+# equals/contains/javascript/is-json checks only.
+
+tests: file://fixtures/regression/cases.yaml

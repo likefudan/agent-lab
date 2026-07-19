@@ -24,75 +24,62 @@ Work continues on branch `cursor-impl` only. Do not mutate `main` or
 - P6-T01 through P6-T04: profiles, DuckDuckGo search, strict offline boundary
   verification, and the decision to defer SearXNG
 - P7-T01 through P7-T03: diagnostics, backup/restore, and recovery procedures
-
-## In progress
-
-### P8-T01: Promptfoo regression suites
-
-The earlier subagent stopped before writing Promptfoo configuration. Restart
-this task from its plan section. Existing chat, image, RAG, and search fixtures
-are ready to reuse.
+- P8-T01: Promptfoo regression suites (pinned local-only Promptfoo 0.121.19)
+- P8-T02: native hardware benchmark (`scripts/benchmark.sh` / `agent-lab benchmark`)
+- P8-T03: MVP acceptance matrix and qualification decision
+  (`docs/decisions/0010-mvp-qualification.md`)
 
 ## Pending plan tasks
 
-- P8-T01: Promptfoo regression suites
-- P8-T02: native hardware benchmark
-- P8-T03: full MVP acceptance matrix and qualification decision
 - P9-T01: final installation and first-run documentation
 - P9-T02: final operations/privacy/recovery documentation pass
 - P9-T03: manifest freeze and release-candidate gate
 
-## P6-T03 completion notes
+## P8 completion notes
 
 Repository changes on `cursor-impl`:
 
-- `scripts/offline-verify.sh`
-- `tests/integration/test-offline.sh`
-- `docs/privacy.md`
+- `evals/promptfooconfig.yaml`, `evals/promptfooconfig.assertion-selftest.yaml`
+- `evals/package.json`, `evals/package-lock.json`, `evals/README.md`
+- `evals/fixtures/regression/`, `evals/fixtures/assertions/`
+- `scripts/benchmark.sh`
+- `tests/smoke/run.sh`, `tests/integration/run.sh`
+- `tests/static/run.sh` (prune `evals/node_modules` from Markdown link scan)
+- `tests/integration/test-lifecycle.sh` (match actual `agent-lab health` FAIL text)
+- `docs/decisions/0010-mvp-qualification.md`
 
-Verified commands:
+Verified on close-out:
 
-1. `tests/integration/test-offline.sh` — PASS
-2. `bin/agent-lab offline verify --config-only --full` — PASS
-   (`boundary=configuration_only`)
-3. `bin/agent-lab offline verify --boundary-confirmed --full` — PASS
-   (`boundary=user_controlled_egress_block_verified`)
+| Command | Result |
+| --- | --- |
+| `make test-static` | PASS (ShellCheck SKIP) |
+| Smoke (LLM CLI, Aider, Open WebUI) | PASS |
+| `make test-integration` | PASS (isolated model-lifecycle SKIP while `:11434` busy) |
+| `make test-offline` | PASS (`configuration_only`, profile restored to `online-manual`) |
+| Promptfoo fast suite | PASS 28/28 |
+| `bin/agent-lab benchmark` | PASS; recommend keep-alive `5m`, default chat `qwen-9b` |
+| `tests/integration/test-search.sh` | FAIL under active LuLu Docker/Ollama Block; waived in 0010 |
 
-Host-only boundary setup used for the third command:
+LuLu Block rules from P6-T03 remain active. They are correct for offline egress
+proof and currently prevent Docker-originated DuckDuckGo search. Relax them only
+when intentionally re-qualifying online search; do not loosen product security
+to force a pass.
 
-- LuLu 4.3.2 installed via Homebrew cask
-- `lulu-cli` installed via `woop/tap/lulu-cli`
-- Explicit Block rules for Docker.app, `com.docker.backend`,
-  `com.docker.virtualization`, `com.docker.vmnetd`, and the Homebrew Ollama
-  binary
-- LuLu preference `allowLocalHost=true` preserved so container→host Ollama
-  loopback continued to work
+## Verified state at handoff
 
-Those LuLu Block rules remain active after verification. Relax or delete them
-in LuLu (or via `lulu-cli`) when normal Docker outbound access is needed again.
+- Ollama 0.32.1 on `127.0.0.1:11434` (managed LaunchAgent, cloud disabled)
+- Open WebUI 0.10.2 on `http://127.0.0.1:3000` with durable volume
+  `agent-lab-open-webui-data`
+- Active profile: `online-manual`
+- Qualified models: `qwen3.5:4b`, `qwen3.5:9b`, `gemma4:12b`
+- Host tools added for P8: Homebrew Node.js 26.5.0 / npm 11.17.0; Promptfoo
+  installed under `evals/node_modules` (gitignored)
 
-## Verified state at pause
+## Host-only changes
 
-- Ollama 0.32.1 is installed as the per-user managed LaunchAgent on
-  `127.0.0.1:11434` with cloud integration disabled.
-- Open WebUI 0.10.2 runs from the pinned OCI digest on
-  `http://127.0.0.1:3000` with durable named-volume data.
-- Active profile: `online-manual`.
-- Qualified model presentation: `qwen3.5:4b`, `qwen3.5:9b`, and `gemma4:12b`.
-- Offline configuration-only and LuLu boundary-confirmed full verification both
-  passed on 2026-07-19; profile restored to `online-manual`.
-- `make test-static` passed previously; ShellCheck remains an explicit release
-  prerequisite and was skipped because it is not installed.
+- Prior: Ollama, LLM CLI, Aider, models, Open WebUI volume, LuLu Block rules
+- P8: Homebrew `node` 26.5.0; Promptfoo local install via `evals/npm ci`
+- LuLu Docker/Ollama outbound Block rules still active
 
-## Host-only changes already made
-
-- Homebrew Ollama 0.32.1 and its managed per-user LaunchAgent
-- LLM CLI 0.31.1 plus `llm-ollama` 0.16.1 in the user uv environment
-- Aider 0.86.2 in a uv-managed Python 3.12.13 tool environment
-- Six Ollama artifacts retained locally (three approved standard artifacts and
-  three rejected MLX qualification artifacts)
-- Docker named volume `agent-lab-open-webui-data`
-- LuLu 4.3.2 plus Docker/Ollama outbound Block rules (still active)
-
-Secrets, model weights, caches, chats, vectors, logs, results, `.env`, and
-`.cursor/` remain ignored and must not be committed.
+Secrets, model weights, caches, chats, vectors, logs, results, `.env`,
+`evals/node_modules/`, and `.cursor/` remain ignored and must not be committed.

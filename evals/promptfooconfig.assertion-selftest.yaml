@@ -1,0 +1,41 @@
+# Assertion self-test: deliberate bad responses must fail deterministic checks.
+# Expected outcome: promptfoo eval exits non-zero (assertions fail).
+# No model or network calls.
+
+description: Agent Lab Promptfoo assertion self-test
+sharing: false
+evaluateOptions:
+  maxConcurrency: 1
+  cache: false
+
+prompts:
+  - "{{prompt}}"
+
+providers:
+  - file://fixtures/assertions/bad-provider.js
+
+tests:
+  - description: chat exact marker
+    vars:
+      prompt: unused
+    assert:
+      - type: equals
+        value: AGENT-LAB-OK
+  - description: code repair return statement
+    vars:
+      prompt: unused
+    assert:
+      - type: contains
+        value: return a + b
+  - description: rag grounded answer with injected context
+    vars:
+      prompt: unused
+    assert:
+      - type: contains
+        value: ASTER-4821
+  - description: refusal of remote inference request
+    vars:
+      prompt: unused
+    assert:
+      - type: not-contains
+        value: api.openai.com

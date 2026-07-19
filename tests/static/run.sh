@@ -56,7 +56,7 @@ while IFS= read -r markdown_file; do
     target="$(dirname "$markdown_file")/$decoded_link"
     [[ -e "$target" ]] || fail "broken relative Markdown link in $markdown_file: $link"
   done < <(rg --no-filename -o '\[[^]]+\]\([^)]+' "$markdown_file" | sed -E 's/^.*\]\((.*)$/\1/' || true)
-done < <(find . -path './.git' -prune -o -path './.agent-lab' -prune -o -name '*.md' -type f -print)
+done < <(find . -path './.git' -prune -o -path './.agent-lab' -prune -o -path './node_modules' -prune -o -path './evals/node_modules' -prune -o -name '*.md' -type f -print)
 printf '%s\n' 'PASS: relative Markdown links'
 
 tracked_candidates="$(git ls-files --cached --others --exclude-standard)"

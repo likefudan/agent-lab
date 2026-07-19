@@ -1,0 +1,221 @@
+# Versioned Promptfoo cases for Agent Lab local regressions.
+# Metadata: suite (fast|full), profile, capability, network, cost.
+# Deterministic assertions only. Hosted evaluators are forbidden.
+# providers: lists filter top-level labels from promptfooconfig.yaml.
+
+- description: chat exact marker
+  metadata:
+    suite: fast
+    profile: offline
+    capability: text
+    network: none
+    cost: low
+  vars:
+    prompt: Reply with exactly AGENT-LAB-OK and nothing else.
+  providers:
+    - qwen-4b
+    - qwen-9b
+    - gemma-12b
+  assert:
+    - type: equals
+      value: AGENT-LAB-OK
+
+- description: instruction following numbered list
+  metadata:
+    suite: fast
+    profile: offline
+    capability: text
+    network: none
+    cost: low
+  vars:
+    prompt: >
+      List exactly three lowercase fruit names, one per line, with no numbering,
+      bullets, punctuation, Markdown fences, or extra text. Use apple, banana,
+      and cherry in that order.
+  providers:
+    - qwen-4b
+    - qwen-9b
+    - gemma-12b
+  assert:
+    - type: javascript
+      value: |
+        const lines = String(output)
+          .replace(/```(?:\w+)?/g, '')
+          .split(/\r?\n/)
+          .map((line) => line.trim())
+          .filter(Boolean);
+        return lines.length === 3 &&
+          lines[0] === 'apple' &&
+          lines[1] === 'banana' &&
+          lines[2] === 'cherry';
+
+- description: refusal of remote inference request
+  metadata:
+    suite: fast
+    profile: offline
+    capability: text
+    network: none
+    cost: low
+  vars:
+    prompt: >
+      A user asked you to call a remote hosted API and return its response.
+      You must refuse without quoting remote hostnames or URLs. Reply with
+      exactly LOCAL-ONLY-REFUSAL and nothing else.
+  providers:
+    - qwen-4b
+    - qwen-9b
+    - gemma-12b
+  assert:
+    - type: equals
+      value: LOCAL-ONLY-REFUSAL
+    - type: not-contains
+      value: "https://"
+
+- description: structured JSON object
+  metadata:
+    suite: fast
+    profile: offline
+    capability: text
+    network: none
+    cost: low
+  vars:
+    prompt: >
+      Reply with only a JSON object and no Markdown. The object must contain
+      exactly the keys "status" and "code" with values "ok" and 42.
+  providers:
+    - qwen-4b
+    - qwen-9b
+    - gemma-12b
+  assert:
+    - type: is-json
+    - type: javascript
+      value: |
+        const raw = String(output).replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '');
+        const obj = JSON.parse(raw);
+        return obj && obj.status === 'ok' && Number(obj.code) === 42 && Object.keys(obj).length === 2;
+
+- description: code repair return statement
+  metadata:
+    suite: fast
+    profile: offline
+    capability: code
+    network: none
+    cost: low
+  vars:
+    prompt: "Repair this Python function. Return only the complete function, with no Markdown: def add(a, b):\n    return a - b"
+  providers:
+    - qwen-4b
+    - qwen-9b
+    - gemma-12b
+  assert:
+    - type: contains
+      value: return a + b
+    - type: not-contains
+      value: return a - b
+
+- description: tool call weather Paris
+  metadata:
+    suite: fast
+    profile: offline
+    capability: tools
+    network: none
+    cost: medium
+  vars:
+    prompt: What is the weather in Paris? Use the weather tool. Do not answer from memory.
+  providers:
+    - qwen-4b-tools
+    - qwen-9b-tools
+    - gemma-12b-tools
+  assert:
+    - type: javascript
+      value: |
+        const text = String(output);
+        let payload;
+        try { payload = JSON.parse(text); } catch { return false; }
+        const name = payload.name || payload.function?.name;
+        const args = payload.arguments || payload.function?.arguments || {};
+        const city = typeof args === 'string' ? JSON.parse(args).city : args.city;
+        return name === 'get_weather' && String(city).toLowerCase().includes('paris');
+
+- description: image understanding vision card
+  metadata:
+    suite: fast
+    profile: offline
+    capability: vision
+    network: none
+    cost: medium
+  vars:
+    prompt: >
+      Identify the large colored shape and transcribe the code printed below it.
+      Reply as JSON with keys shape, color, and code.
+    image_path: fixtures/model-qualification/vision-card.svg.png
+  providers:
+    - gemma-12b-vision
+  assert:
+    - type: javascript
+      value: |
+        const raw = String(output).replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '');
+        const obj = JSON.parse(raw);
+        const shape = String(obj.shape || '').toLowerCase();
+        const color = String(obj.color || '').toLowerCase();
+        const code = String(obj.code || '');
+        return shape.includes('triangle') && color.includes('blue') && code.includes('AGENT 42');
+
+- description: rag grounded answer with injected context
+  metadata:
+    suite: fast
+    profile: offline
+    capability: rag
+    network: none
+    cost: low
+  vars:
+    prompt: file://fixtures/regression/prompts/rag-operations.txt
+  providers:
+    - qwen-4b
+    - qwen-9b
+    - gemma-12b
+  assert:
+    - type: contains
+      value: ASTER-4821
+    - type: contains
+      value: "37"
+    - type: contains
+      value: RAG-SOURCE-OPERATIONS
+
+- description: citation fields from injected context
+  metadata:
+    suite: fast
+    profile: offline
+    capability: citations
+    network: none
+    cost: low
+  vars:
+    prompt: file://fixtures/regression/prompts/citation-privacy-offline.txt
+  providers:
+    - qwen-4b
+    - qwen-9b
+    - gemma-12b
+  assert:
+    - type: contains
+      value: QUIET-3064
+    - type: contains
+      value: privacy-offline.md
+
+- description: search results grounded answer without live egress
+  metadata:
+    suite: fast
+    profile: online-manual
+    capability: search
+    network: none
+    cost: low
+  vars:
+    prompt: file://fixtures/regression/prompts/search-iana.txt
+  providers:
+    - qwen-4b
+    - qwen-9b
+    - gemma-12b
+  assert:
+    - type: contains
+      value: iana.org
+    - type: contains
+      value: example

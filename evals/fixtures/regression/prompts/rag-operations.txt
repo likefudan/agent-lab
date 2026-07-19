@@ -1,0 +1,12 @@
+You are answering from the local knowledge base excerpt below.
+Use only this excerpt. Include the confirmation token and cite the source label.
+
+EXCERPT
+source.name: operations.md
+document: operations.md
+metadata.source_label: RAG-SOURCE-OPERATIONS
+At 37 percent battery the Atlas field console begins preservation mode.
+Confirmation token: ASTER-4821.
+
+QUESTION
+At what battery percentage does the Atlas field console begin preservation mode, and what is its confirmation token? Cite the source label.

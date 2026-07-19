@@ -1,0 +1,17 @@
+{
+  "name": "agent-lab-evals",
+  "private": true,
+  "description": "Pinned Promptfoo runner for Agent Lab local regression suites",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "validate": "PROMPTFOO_CONFIG_DIR=\"${PROMPTFOO_CONFIG_DIR:-../.agent-lab/promptfoo}\" promptfoo validate -c promptfooconfig.yaml && PROMPTFOO_CONFIG_DIR=\"${PROMPTFOO_CONFIG_DIR:-../.agent-lab/promptfoo}\" promptfoo validate -c promptfooconfig.assertion-selftest.yaml",
+    "eval:fast": "mkdir -p ../.agent-lab/results ../.agent-lab/promptfoo && OLLAMA_BASE_URL=http://127.0.0.1:11434 PROMPTFOO_CONFIG_DIR=\"${PROMPTFOO_CONFIG_DIR:-../.agent-lab/promptfoo}\" promptfoo eval -c promptfooconfig.yaml --filter-metadata suite=fast -j 1 --no-share --output ../.agent-lab/results/promptfoo-fast.json",
+    "eval:full": "mkdir -p ../.agent-lab/results ../.agent-lab/promptfoo && OLLAMA_BASE_URL=http://127.0.0.1:11434 PROMPTFOO_CONFIG_DIR=\"${PROMPTFOO_CONFIG_DIR:-../.agent-lab/promptfoo}\" promptfoo eval -c promptfooconfig.yaml -j 1 --no-share --output ../.agent-lab/results/promptfoo-full.json",
+    "eval:selftest": "mkdir -p ../.agent-lab/results ../.agent-lab/promptfoo && set +e; PROMPTFOO_CONFIG_DIR=\"${PROMPTFOO_CONFIG_DIR:-../.agent-lab/promptfoo}\" promptfoo eval -c promptfooconfig.assertion-selftest.yaml -j 1 --no-share --output ../.agent-lab/results/promptfoo-assertion-selftest.json; code=$?; set -e; test \"$code\" -ne 0 && node fixtures/assertions/verify-bad-responses.js"
+  },
+  "dependencies": {
+    "promptfoo": "0.121.19"
+  }
+}
