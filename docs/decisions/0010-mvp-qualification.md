@@ -163,6 +163,14 @@ qualified host):
 No secrets, model weights, caches, chat data, vector data, logs, or benchmark
 scratch data are tracked. Mutable runtime paths remain gitignored.
 
+`tested_commit` is the freeze content commit whose tree passed the gate checks.
+Annotated tag `v0.1.0-rc.1` points at the follow-up commit that records that
+SHA in the catalogs and this decision. A clean checkout of `v0.1.0-rc.1` plus
+the documented external downloads in `docs/installation.md` reproduces the
+qualified MVP. Mutable runtime artifacts (`.env`, model weights, Open WebUI
+volume data, logs, `.agent-lab/results/`, `evals/node_modules/`) remain outside
+Git.
+
 ## Consequences
 
 - Manifests are frozen for `v0.1.0-rc.1`. Change pins only with a new
