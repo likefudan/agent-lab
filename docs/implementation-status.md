@@ -58,7 +58,7 @@ Verified on close-out:
 | `make test-offline` | PASS (`configuration_only`, profile restored to `online-manual`) |
 | Promptfoo fast suite | PASS 28/28 |
 | `bin/agent-lab benchmark` | PASS; recommend keep-alive `5m`, default chat `qwen-9b` |
-| `tests/integration/test-search.sh` | FAIL under active LuLu Docker/Ollama Block; waived in 0010 |
+| `tests/integration/test-search.sh` | PASS after temporary LuLu Allow; Docker/Ollama Block rules restored |
 
 LuLu Block rules from P6-T03 remain active. They are correct for offline egress
 proof and currently prevent Docker-originated DuckDuckGo search. Relax them only

@@ -1,6 +1,6 @@
 # 0010 — MVP acceptance matrix and qualification
 
-- **Status:** Conditionally accepted
+- **Status:** Accepted
 - **Qualified:** 2026-07-19
 - **Host:** Apple M5 MacBook Air, 24 GiB unified memory, macOS 26.5.2
 - **Branch:** `cursor-impl`
@@ -22,10 +22,12 @@ default duration semantics) for production. Native benchmark sampling on this
 host showed no critical memory pressure (`min_system_memory_free_percent=26`,
 peak Ollama resident ≈ 7.5 GiB for `gemma4:12b`).
 
-Conditional acceptance: live DuckDuckGo online search is waived for this
-matrix run while LuLu Block rules for Docker/Ollama outbound remain active
-from P6-T03. Search provider qualification itself remains accepted under
-decision 0009 from the earlier egress-available run.
+Conditional acceptance originally waived live DuckDuckGo while LuLu Block rules
+remained active from P6-T03. On 2026-07-19 those Block rules were temporarily
+relaxed, `tests/integration/test-search.sh` was re-run successfully (both cases
+PASS), and the Docker/Ollama Block rules were restored afterward. Search
+provider qualification remains accepted under decision 0009; this matrix now
+also has a same-day live egress re-check.
 
 ## Exact component versions and digests
 
@@ -70,7 +72,7 @@ Embedding cache remains the pinned Open WebUI snapshot recorded in
 | Hardware benchmark | `bin/agent-lab benchmark --runs 1 --concurrency` | **PASS**; keep-alive `5m`; no critical pressure | `.agent-lab/results/benchmark-latest.json` |
 | Offline config | `make test-offline` | **PASS** (`boundary=configuration_only`) | `.agent-lab/results/test-offline.log`, `offline-latest.json` |
 | Offline LuLu boundary | `bin/agent-lab offline verify --boundary-confirmed --full` | **PASS** (earlier same-day P6-T03) | `.agent-lab/results/offline-boundary-full.log` |
-| Online search | `tests/integration/test-search.sh` | **FAIL / WAIVED** under active LuLu egress Block | `.agent-lab/results/test-search.log`, `search-latest.jsonl` |
+| Online search | `tests/integration/test-search.sh` | **PASS** (re-run 2026-07-19 after temporary LuLu Allow; Block rules restored) | `.agent-lab/results/test-search.log`, `search-latest.jsonl` |
 
 Online search was run separately from offline proof so the offline result remains
 unambiguous.
@@ -104,7 +106,7 @@ search-grounded answers without live egress. Live DuckDuckGo remains owned by
 
 | Item | Impact | Owner / follow-up |
 | --- | --- | --- |
-| Live DuckDuckGo search failed with HTTP 500 under LuLu Docker/Ollama Block rules | Online search unavailable until egress is relaxed; offline and local RAG remain intact | Operator: temporarily relax LuLu Block rules (or disable Wi-Fi isolation intentionally) and re-run `tests/integration/test-search.sh`. Product security boundary is not loosened. |
+| Live DuckDuckGo search | Re-qualified PASS after temporary LuLu Allow; Docker/Ollama Block rules restored | None — keep Block rules for offline egress posture; relax only when intentionally testing online search |
 | ShellCheck not installed | Static suite skips ShellCheck | Install ShellCheck before contributor release checks |
 | Isolated `test-model-lifecycle.sh` skipped while managed Ollama held `:11434` | Matrix did not re-prove isolated server drill | Stop LaunchAgent, free the port, re-run; prior P2-T03 result remains authoritative |
 | Fresh Open WebUI volume not wiped | Matrix used the existing durable volume | Acceptable for operator qualification; clean-volume path already covered in P3/P7 |
