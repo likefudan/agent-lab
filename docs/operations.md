@@ -1,5 +1,136 @@
 # Operations
 
+Day-to-day operation of a qualified Agent Lab host: what runs, where data
+lives, how profiles and models behave, how to update safely, and how to
+triage failures. Run commands from the repository root unless noted.
+
+For first install, see [installation](installation.md). For trust boundaries
+and offline proof, see [privacy](privacy.md). For backup and restore drills,
+see [recovery](recovery.md).
+
+## What runs
+
+| Process | Bind | Owner |
+| --- | --- | --- |
+| Ollama `0.32.1` | `127.0.0.1:11434` | Agent Lab LaunchAgent `ai.agent-lab.ollama` |
+| Open WebUI `0.10.2` | `127.0.0.1:3000` → container `:8080` | Docker Compose project `agent-lab` |
+| LLM CLI / Aider | client only | Optional host tools talking to Ollama `/v1` |
+
+Inference stays on the host. Open WebUI reaches Ollama through
+`host.docker.internal:11434`. No remote model endpoint is configured in the
+MVP.
+
+## Data locations
+
+| Data | Location | In Git? | In Agent Lab backup? |
+| --- | --- | --- | --- |
+| Versioned config, catalogs, profiles | repository `config/` | Yes | Yes (runtime copy / reviewed tree) |
+| Private Compose secrets and admin password | repository `.env` (mode `0600`) | No | Yes |
+| Selected profile name | `.agent-lab/profile` | No | With config extract |
+| Ollama weights and manifests | `~/.ollama/models` | No | No (reproducible from catalog) |
+| Ollama LaunchAgent logs | `~/.agent-lab/logs/` | No | No |
+| Open WebUI chats, settings, uploads, Chroma | Docker volume `agent-lab-open-webui-data` | No | Yes |
+| Embedding model cache | inside that volume under `/app/backend/data/cache/...` | No | Yes (with volume) |
+| LLM CLI runtime | `.agent-lab/llm/` (when seeded) | No | No |
+| Aider history | per-repo `.agent-lab/aider/` (when seeded) | No | No |
+| Test and benchmark artifacts | `.agent-lab/results/` | No | No |
+
+Never commit secrets, weights, caches, chats, vectors, logs, or results.
+
+## Retention
+
+Agent Lab does not auto-expire chats, uploads, or vectors. Retention is an
+operator choice:
+
+- Delete conversations and files through Open WebUI when you no longer need
+  them.
+- Rotate backups deliberately; treat archives like credentials because they
+  can contain password hashes and chat history.
+- Ollama keep-alive controls **model residency in RAM**, not disk retention.
+  Disk weights remain until you explicitly remove a tag.
+- LLM CLI and Aider histories are separate ignored trees; prune them locally
+  if desired.
+
+## Configuration profiles
+
+| Profile | `AGENT_LAB_SEARCH_MODE` | Pulls | Remote tools | Intent |
+| --- | --- | --- | --- | --- |
+| `online-manual` (default) | `manual` | allowed | false | Connected; search only after explicit user action |
+| `online-automatic` | `automatic` | allowed | false | Connected; model may invoke DuckDuckGo |
+| `offline` | `disabled` | prohibited | false | Local core workflows; no search; no pulls |
+
+Apply and persist:
+
+```sh
+config/open-webui/apply-profile.sh online-manual
+# or: online-automatic | offline
+bin/agent-lab status --json | jq '.profile'
+```
+
+Applying a profile recreates the Open WebUI container from Compose while
+keeping the named volume. Do not hand-edit `.agent-lab/profile` or Open
+WebUI's SQLite database to change modes.
+
+A valid offline **profile file** is not proof of zero egress. See
+[privacy](privacy.md#strict-offline-verification).
+
+## Resource limits and model switching
+
+- `OLLAMA_MAX_LOADED_MODELS=1` is mandatory. Only one large model may reside at
+  a time.
+- Prefer serial requests. Concurrent chat, Aider, and WebUI traffic against
+  different models forces unload/load cycles.
+- Defaults: chat `qwen-9b`, fast `qwen-4b`, coding/vision `gemma-12b`.
+- Only `gemma-12b` is advertised for image input.
+- Hardware qualification recommends `OLLAMA_KEEP_ALIVE=5m` on the 24 GB host.
+  Changing keep-alive is a deliberate LaunchAgent edit followed by memory
+  re-checks (`bin/agent-lab benchmark` or `memory_pressure`).
+- Under memory pressure, finish or cancel active generation, stop unrelated
+  apps, or `bin/agent-lab stop` / `start` and continue on `qwen-4b`. Do not
+  raise the loaded-model limit or add a second inference server.
+
+Inspect residency:
+
+```sh
+curl --fail --silent http://127.0.0.1:11434/api/ps | jq .
+bin/agent-lab status --json | jq '.ollama.active_models'
+```
+
+## Updates and digest drift
+
+Pins are immutable identifiers, not floating tags.
+
+| Check | Command / signal |
+| --- | --- |
+| Catalogs and Compose | `scripts/validate-config.sh` |
+| Live Ollama binary and WebUI image | `bin/agent-lab status` (`digest=DRIFT` is a failure) |
+| Model manifests and blobs | `bin/agent-lab models verify` |
+| Embedding cache tree | `config/open-webui/verify-embedding-cache.sh` |
+
+When drift appears:
+
+1. Do not silently approve new bytes or edit expected digests in Git.
+2. Stop using the drifted artifact for production chat until requalified.
+3. Reinstall the pinned Ollama bottle, recreate from the pinned OCI digest, or
+   re-pull the catalog alias during an explicit online maintenance window.
+4. Record a new decision if upstream no longer serves the qualified artifact.
+
+Version update checks stay disabled in every profile
+(`ENABLE_VERSION_UPDATE_CHECK=false`). Upgrades are operator-driven and must
+repeat the relevant qualification probes.
+
+## Logs
+
+| Source | Path / command |
+| --- | --- |
+| Ollama stdout/stderr | `~/.agent-lab/logs/ollama.stdout.log`, `ollama.stderr.log` |
+| Open WebUI container | `docker compose --env-file .env -f compose.yaml logs --tail 100 open-webui` |
+| Status / health JSON | `bin/agent-lab status --json` |
+| Offline verification | `.agent-lab/results/offline-latest.json` |
+| Benchmarks / suites | `.agent-lab/results/` |
+
+Container logging is capped (`max-size` 10m, `max-file` 3) in `compose.yaml`.
+
 ## Local document RAG
 
 Agent Lab uses Open WebUI's built-in file ingestion, Chroma vector storage, and
@@ -27,11 +158,24 @@ written under ignored `.agent-lab/results/`.
 Built-in extraction covers the MVP's Markdown, code, and text PDFs. Scanned-PDF
 OCR is not included; see [Decision 0008](decisions/0008-document-extraction.md).
 
+## Known limitations
+
+- Single-user laptop scope; no multi-user or clustered deployment.
+- One loaded large model at a time on 24 GB unified memory.
+- Qwen aliases are not vision-qualified; use `gemma-12b` for images.
+- Promptfoo and small local models can show multi-second first-token latency on
+  longer prompts; that is expected UX, not a crash.
+- Online search uses DuckDuckGo only when an online profile enables it; LuLu or
+  other host firewall rules can block Docker egress even when the profile
+  allows search.
+- SearXNG and Docling are deferred; do not add them during incident response.
+- Direct MLX-VLM / Hugging Face inference is out of MVP scope.
+- Configuration alone is not a physical firewall.
+
 ## Incident triage and command safety
 
-Run commands in this document from the repository root. Start with the
-read-only diagnostics; they do not start a service, load or pull a model, or
-change configuration:
+Start with read-only diagnostics; they do not start a service, load or pull a
+model, or change configuration:
 
 ```sh
 bin/agent-lab status
@@ -43,7 +187,7 @@ bin/agent-lab status --json | jq .
 the first supported correction to try. Preserve that output and the relevant
 logs before restarting anything when the same failure recurs.
 
-The procedures below use these safety labels:
+Safety labels used below:
 
 - **Read-only** inspects state and is safe to repeat.
 - **Service action** starts, stops, or recreates a process or container while

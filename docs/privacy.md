@@ -1,20 +1,71 @@
 # Privacy and network boundaries
 
-Local prompts, chats, uploads, vectors, and model inference remain on this Mac
-in normal Agent Lab operation. Open WebUI stores application data in the named
-Docker volume; Ollama stores approved model artifacts under its user model
-store. LLM CLI and Aider maintain separate ignored histories.
+Agent Lab is offline-first: after required software and model weights are
+downloaded, core chat, coding, vision, and local RAG must work without the
+internet. This document states where private data lives, what may leave the
+machine, and how to prove offline behavior.
 
-The offline profile recreates Open WebUI with `OFFLINE_MODE=true`, disables
-search and version/update checks, prevents embedding/reranker downloads, blocks
-Agent Lab model pulls, disables remote tools and telemetry, and presents only
-the three approved local Ollama artifacts. Ollama is loopback-only with its
-cloud integration disabled.
+Architecture and non-goals are in [design](design.md). Day-to-day commands are
+in [operations](operations.md). Backup contents are in [recovery](recovery.md).
 
-Configuration is not a physical firewall. A process defect could bypass an
-application setting, so a strict zero-egress claim additionally requires a
-user-controlled boundary. Agent Lab never edits `pf`, LuLu rules, Wi-Fi, or
-Ethernet state without the operator. The exact verification protocol is:
+## Local trust boundary
+
+In normal operation these stay on this Mac:
+
+| Category | Store |
+| --- | --- |
+| Prompts, chats, uploads, vectors, Open WebUI settings | Docker volume `agent-lab-open-webui-data` |
+| Approved model weights and manifests | `~/.ollama/models` |
+| Admin password and `WEBUI_SECRET_KEY` | ignored repository `.env` (mode `0600`) |
+| LLM CLI history (if enabled) | ignored `.agent-lab/llm/` |
+| Aider conversation history | ignored per-repo `.agent-lab/aider/` |
+| Inference | native Ollama on `127.0.0.1:11434` only |
+
+Ollama is loopback-only with cloud integration disabled
+(`OLLAMA_NO_CLOUD=1`). Open WebUI publishes only on `127.0.0.1:3000`. No hosted
+model provider is configured in the MVP catalogs or Compose file.
+
+Treat the Mac login session, disk encryption, and backup destinations as part
+of the trust boundary. Anyone who can read `.env` or a backup archive can
+impersonate the local WebUI admin and read chat history.
+
+## Remote trust boundary
+
+Outbound contact is intentional and limited:
+
+| Activity | When | What can leave |
+| --- | --- | --- |
+| Homebrew / Docker / Ollama pulls | Explicit online install or maintenance | Package and model bytes from registries |
+| Embedding-cache first populate | Online until the pinned snapshot exists | Hugging Face / container fetch of the pinned revision |
+| DuckDuckGo search + page fetch | `online-manual` (user chooses search) or `online-automatic` (model may call search) | Query text, result URLs, fetched page content |
+| Version / telemetry | Disabled in every Agent Lab profile | Nothing by design (`ENABLE_VERSION_UPDATE_CHECK=false`, analytics flags off) |
+
+Search queries, result URLs, and fetched page content leave the computer in both
+online modes. Hosted model inference remains unconfigured. Treat fetched content
+as untrusted and review citations before promoting anything into permanent
+knowledge.
+
+Remote tools stay disabled (`AGENT_LAB_ALLOW_REMOTE_TOOLS=false`) in all three
+profiles.
+
+## Profile semantics
+
+| Profile | Networking intent |
+| --- | --- |
+| `online-manual` (default) | Connected machine; search only after explicit user action |
+| `online-automatic` | Connected machine; qualified models may invoke search tools |
+| `offline` | Recreate Open WebUI with `OFFLINE_MODE=true`, disable search and update checks, prevent embedding/reranker downloads, block Agent Lab model pulls, disable remote tools and telemetry, present only the three approved local Ollama artifacts |
+
+Apply with `config/open-webui/apply-profile.sh PROFILE`. Details:
+[operations](operations.md#configuration-profiles).
+
+## Configuration is not a firewall
+
+A process defect could bypass an application setting. A strict zero-egress claim
+additionally requires a user-controlled boundary. Agent Lab never edits `pf`,
+LuLu rules, Wi-Fi, or Ethernet state without the operator.
+
+## Strict offline verification
 
 1. Warm and verify every model and embedding cache while online.
 2. Turn off Wi-Fi and disconnect Ethernet, or apply reviewed LuLu block rules
@@ -31,6 +82,8 @@ that temporary boundary. Interrupted verification is covered by an EXIT-trap
 cleanup path (the integration test drives a stop-file hold because Bash 3.2 on
 macOS does not reliably deliver SIGINT during `sleep`).
 
+## Configuration-only offline checks
+
 For routine regression without a firewall claim, run
 `bin/agent-lab offline verify --config-only --quick` (or `--full`). The command
 labels its result `configuration_only`, tests local denial paths for search,
@@ -40,8 +93,22 @@ also runs the Open WebUI, LLM CLI, and Aider smoke suites, local RAG, and an
 inline three-model switch check against the managed Ollama. It does not probe
 public endpoints and makes no zero-egress claim.
 
-Online-manual is the default connected profile. DuckDuckGo is contacted only
-after the user explicitly chooses search. Online-automatic permits the local
-model to select the search tool. Search queries, result URLs, and fetched page
-content leave the computer in both online modes; hosted model inference remains
-unconfigured. Treat fetched content as untrusted and review citations.
+## Operator answers
+
+| Question | Answer |
+| --- | --- |
+| What runs locally? | Ollama + Open WebUI (+ optional LLM CLI / Aider clients) |
+| Where does private data go? | WebUI volume, `.env`, optional CLI/Aider trees; weights under `~/.ollama` |
+| When does networking occur? | Install/maintenance pulls; optional DuckDuckGo in online profiles |
+| How do I prove offline behavior? | Warm caches, apply host boundary, run `--boundary-confirmed --full` |
+| How do I recover data? | [recovery](recovery.md) backup/restore drill |
+
+## Secret and path review
+
+Before sharing logs or opening issues:
+
+- Redact `.env` values, backup paths that reveal personal directory names, and
+  any pasted `WEBUI_ADMIN_PASSWORD` or `WEBUI_SECRET_KEY`.
+- Prefer `bin/agent-lab status --json` fields over dumping entire volumes.
+- Do not attach `~/.ollama/models` blobs or full WebUI volume tarballs to
+  public trackers.

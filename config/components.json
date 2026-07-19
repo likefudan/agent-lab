@@ -1,5 +1,21 @@
 {
   "schema_version": 1,
+  "mvp_freeze": {
+    "status": "frozen",
+    "release_candidate": "v0.1.0-rc.1",
+    "qualified": "2026-07-19",
+    "qualification_decision": "docs/decisions/0010-mvp-qualification.md",
+    "host": "Apple M5 MacBook Air, 24 GiB unified memory, macOS 26.5.2",
+    "branch": "cursor-impl",
+    "tested_commit": "PENDING_RC_COMMIT",
+    "immutable_policy": "Pins use exact versions, git revisions, OCI digests, Ollama manifest digests, and embedding snapshot digests. Floating tags such as latest are forbidden.",
+    "companion_pins": {
+      "llm_cli": "config/llm/requirements.txt (llm==0.31.1, llm-ollama==0.16.1)",
+      "aider": "config/aider/requirements.txt (aider-chat==0.86.2)",
+      "promptfoo": "evals/package.json + evals/package-lock.json (promptfoo@0.121.19)"
+    },
+    "change_policy": "Do not change MVP pins, role defaults, or executable model digests without a new qualification decision and a new release candidate."
+  },
   "components": [
     {
       "id": "ollama",
@@ -42,13 +58,13 @@
       "capabilities": {
         "native_chat_api": "verified",
         "openai_chat_completions": "verified",
-        "streaming": "verified_contract_model_test_pending",
-        "image_input": "verified_contract_model_test_pending",
-        "tool_calls": "verified_contract_model_test_pending",
+        "streaming": "verified",
+        "image_input": "verified",
+        "tool_calls": "verified",
         "keep_alive": "verified",
         "model_metadata": "verified",
         "metal_device_discovery": "verified",
-        "mlx_model_inference": "model_test_pending"
+        "mlx_model_inference": "rejected_for_mvp_missing_required_vision_behavior"
       },
       "decision": "docs/decisions/0002-ollama-compatibility.md"
     },
@@ -116,10 +132,10 @@
         "persistent_data_volume": "verified",
         "ollama_host_bridge": "verified",
         "local_model_request": "verified",
-        "built_in_rag_configuration": "verified_contract_model_selection_pending",
+        "built_in_rag_configuration": "verified",
         "hybrid_search_configuration": "verified_contract",
-        "reranking_configuration": "verified_contract_model_selection_pending",
-        "duckduckgo_web_search": "verified_contract_profile_configuration_pending",
+        "reranking_configuration": "verified_disabled_no_measurable_gain",
+        "duckduckgo_web_search": "verified",
         "offline_and_update_controls": "verified_contract"
       },
       "decision": "docs/decisions/0004-open-webui-compatibility.md"

@@ -4,7 +4,14 @@ Agent Lab backups contain the Open WebUI data volume and versioned runtime
 configuration. They can include the private `.env`, password hashes, chat
 history, uploaded documents, and vectors, so store them like credentials.
 Ollama model weights and container images are excluded because their immutable
-identifiers make them reproducible.
+identifiers make them reproducible from `config/models.json` and
+`config/components.json`.
+
+| Included | Excluded (re-download / recreate) |
+| --- | --- |
+| Open WebUI volume (`agent-lab-open-webui-data`) | `~/.ollama/models` weights |
+| Reviewed runtime configuration / `.env` when archived | OCI images (pin by digest again) |
+| Manifest, per-file SHA-256, profile, timestamp | `.agent-lab/results/`, host logs |
 
 Create a consistent backup in an explicit location with enough free space:
 
@@ -135,6 +142,20 @@ Do not run SQLite repair commands against the only copy, copy individual Chroma
 directories between volumes, or let Open WebUI initialize an empty replacement
 under the live volume name.
 
+## Operator restore walkthrough (offline-capable)
+
+After a verified restore into a new volume and a reviewed cutover:
+
+1. Ensure Docker and the managed Ollama LaunchAgent are up
+   (`bin/agent-lab start`).
+2. Confirm `bin/agent-lab health` and `bin/agent-lab models verify`.
+3. Sign in to Open WebUI, open a known conversation, and run a RAG query that
+   must cite a restored document.
+4. Optionally apply the `offline` profile and run
+   `bin/agent-lab offline verify --config-only --quick` to confirm search and
+   pulls remain denied without claiming a host firewall proof.
+5. Keep the pre-cutover volume and archives until acceptance is recorded.
+
 ## Disposable recovery drill checklist
 
 A second operator should exercise these high-risk paths using disposable data,
@@ -155,3 +176,6 @@ never the live volume:
 Record who performed the drill, archive/volume identifiers, versions, commands,
 results, and cleanup decisions. Cleanup of disposable volumes and archives is a
 separate **destructive** operator action after evidence has been reviewed.
+
+Automated coverage for backup/restore rejection and happy-path behavior lives
+in `tests/integration/test-backup-restore.sh`.

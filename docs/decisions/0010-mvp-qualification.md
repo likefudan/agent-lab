@@ -4,6 +4,9 @@
 - **Qualified:** 2026-07-19
 - **Host:** Apple M5 MacBook Air, 24 GiB unified memory, macOS 26.5.2
 - **Branch:** `cursor-impl`
+- **Release candidate:** `v0.1.0-rc.1`
+- **Tested commit:** `PENDING_RC_COMMIT` (filled when the RC tag is created)
+- **Frozen manifests:** `config/components.json`, `config/models.json`
 - **Raw results:** ignored `.agent-lab/results/`
 
 ## Decision
@@ -120,9 +123,50 @@ LuLu-confirmed offline boundary run was previously verified absent
 (`user_controlled_egress_block_verified`). The live search failure is attributed
 to the intentional host egress Block, not to remote inference falling through.
 
+## Manifest freeze and release candidate
+
+P9-T03 freezes the MVP catalogs and tags release candidate `v0.1.0-rc.1`.
+
+| Item | Value |
+| --- | --- |
+| Release candidate tag | `v0.1.0-rc.1` |
+| Tested commit | `PENDING_RC_COMMIT` |
+| Component catalog | `config/components.json` (`mvp_freeze.status=frozen`) |
+| Model catalog | `config/models.json` (`mvp_freeze.status=frozen`) |
+| Ollama | `0.32.1` / executable SHA-256 `8ac71f1dbc4ef2efb9f15257f016aca199e72a89b278c6af64b1d693dd442b15` |
+| Open WebUI | `0.10.2` / OCI index `sha256:9fcea9c6e32ab60b0498f3986c6cdf651ddbe61db48d2213a3d28048ddd673d4` |
+| Embedding snapshot | `sentence-transformers/all-MiniLM-L6-v2` revision `1110a243fdf4706b3f48f1d95db1a4f5529b4d41` |
+| Companion pins | LLM CLI / Aider requirements files; Promptfoo lockfile under `evals/` |
+
+Freeze gate checks for this release candidate (re-run 2026-07-19 on the
+qualified host):
+
+| Check | Result |
+| --- | --- |
+| Config validation (`make validate`) | **PASS** |
+| Full fast suite (`make test-static`; Promptfoo `npm run eval:fast`) | **PASS** (ShellCheck SKIP; Promptfoo 28/28) |
+| Catalog verification (`agent-lab models verify`) | **PASS** (qwen-4b, qwen-9b, gemma-12b) |
+| Tracked-file secret scan / ignored-data check | **PASS** (via `make test-static`) |
+| Manifest-to-live-host drift (`agent-lab health`, embedding cache, OCI digest) | **PASS** (`healthy=true`; image digest verified) |
+
+### License review (frozen pins)
+
+| Artifact | License recorded |
+| --- | --- |
+| Ollama `0.32.1` | MIT |
+| Open WebUI `0.10.2` | Open WebUI License with prior MIT and BSD-3-Clause contributions |
+| `qwen3.5:4b` / `qwen3.5:9b` | Apache-2.0 |
+| `gemma4:12b` | Apache-2.0 |
+| Embedding `all-MiniLM-L6-v2` | Apache-2.0 |
+| LLM CLI / llm-ollama / Aider / Promptfoo | Apache-2.0 / Apache-2.0 / Apache-2.0 / MIT (companion pins) |
+
+No secrets, model weights, caches, chat data, vector data, logs, or benchmark
+scratch data are tracked. Mutable runtime paths remain gitignored.
+
 ## Consequences
 
-- P9 may freeze manifests and write operator docs against these pins.
+- Manifests are frozen for `v0.1.0-rc.1`. Change pins only with a new
+  qualification decision and a new release candidate.
 - Keep LuLu Block rules documented: they prove offline egress control but block
   Docker-originated online search until relaxed.
 - Do not change keep-alive or default aliases without a new benchmark sample on
