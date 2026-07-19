@@ -5,7 +5,7 @@
 - **Host:** Apple M5 MacBook Air, 24 GiB unified memory, macOS 26.5.2
 - **Branch:** `cursor-impl`
 - **Release candidate:** `v0.1.0-rc.1`
-- **Tested commit:** `PENDING_RC_COMMIT` (filled when the RC tag is created)
+- **Tested commit:** `cb61eda11f457d06f822fcab15a373a01c6d96e1`
 - **Frozen manifests:** `config/components.json`, `config/models.json`
 - **Raw results:** ignored `.agent-lab/results/`
 
@@ -130,7 +130,7 @@ P9-T03 freezes the MVP catalogs and tags release candidate `v0.1.0-rc.1`.
 | Item | Value |
 | --- | --- |
 | Release candidate tag | `v0.1.0-rc.1` |
-| Tested commit | `PENDING_RC_COMMIT` |
+| Tested commit | `cb61eda11f457d06f822fcab15a373a01c6d96e1` |
 | Component catalog | `config/components.json` (`mvp_freeze.status=frozen`) |
 | Model catalog | `config/models.json` (`mvp_freeze.status=frozen`) |
 | Ollama | `0.32.1` / executable SHA-256 `8ac71f1dbc4ef2efb9f15257f016aca199e72a89b278c6af64b1d693dd442b15` |

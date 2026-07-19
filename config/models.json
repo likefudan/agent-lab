@@ -7,7 +7,7 @@
     "qualification_decision": "docs/decisions/0010-mvp-qualification.md",
     "host": "Apple M5 MacBook Air, 24 GiB unified memory, macOS 26.5.2",
     "branch": "cursor-impl",
-    "tested_commit": "PENDING_RC_COMMIT",
+    "tested_commit": "cb61eda11f457d06f822fcab15a373a01c6d96e1",
     "immutable_policy": "Pins use exact versions, git revisions, OCI digests, Ollama manifest digests, and embedding snapshot digests. Floating tags such as latest are forbidden.",
     "companion_pins": {
       "llm_cli": "config/llm/requirements.txt (llm==0.31.1, llm-ollama==0.16.1)",
