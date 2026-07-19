@@ -123,6 +123,29 @@ LuLu-confirmed offline boundary run was previously verified absent
 (`user_controlled_egress_block_verified`). The live search failure is attributed
 to the intentional host egress Block, not to remote inference falling through.
 
+## P9 documentation operator walkthrough
+
+Recorded 2026-07-19 on branch `cursor-impl` (commit `cbda8ef` at start of the
+run) as the clean-room equivalent for **P9-T01** and **P9-T02**: followed
+`docs/installation.md`, `docs/operations.md`, `docs/privacy.md`, and
+`docs/recovery.md` from the repository root without undocumented global Agent
+Lab configuration. Raw log:
+`.agent-lab/results/p9-operator-walkthrough.log`.
+
+| Check | Command / method | Result |
+| --- | --- | --- |
+| Relative links + secret/path static review | `make test-static` | **PASS** (ShellCheck SKIP) |
+| Prerequisites (doctor) | `bin/agent-lab doctor` | **PASS** (9/3/0; optional llm/aider/promptfoo WARN) |
+| Health | `bin/agent-lab health` | **PASS** (`healthy=true`) |
+| First local chat | `tests/smoke/test-webui.sh` (browser/API path in installation) | **PASS** |
+| Offline mode proof | `bin/agent-lab offline verify --config-only --quick` | **PASS** (`configuration_only`; profile restored to `online-manual`) |
+| Backup | `bin/agent-lab backup --destination /tmp/agent-lab-p9-walkthrough` | **PASS** (archive + `.sha256` sidecar) |
+| Restore drill | `bin/agent-lab restore` into disposable volume `agent-lab-p9-walkthrough-restore` + empty config dir | **PASS**; disposable volume removed afterward |
+| Post-walkthrough health | `bin/agent-lab health` | **PASS**; profile `online-manual` |
+
+Secret/path review of the P9 docs themselves found no embedded credentials or
+personal home-directory paths (only documented references to ignored `.env`).
+
 ## Manifest freeze and release candidate
 
 P9-T03 freezes the MVP catalogs and tags release candidate `v0.1.0-rc.1`.

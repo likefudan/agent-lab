@@ -28,12 +28,15 @@ Work continues on branch `cursor-impl` only. Do not mutate `main` or
 - P8-T02: native hardware benchmark (`scripts/benchmark.sh` / `agent-lab benchmark`)
 - P8-T03: MVP acceptance matrix and qualification decision
   (`docs/decisions/0010-mvp-qualification.md`)
+- P9-T01: installation and first-run documentation (`README.md`,
+  `docs/installation.md`) with recorded operator walkthrough
+- P9-T02: operations, privacy, and recovery documentation finalized with the
+  same walkthrough (offline + backup/restore)
+- P9-T03: MVP manifest freeze and release candidate `v0.1.0-rc.1`
 
 ## Pending plan tasks
 
-- P9-T01: final installation and first-run documentation
-- P9-T02: final operations/privacy/recovery documentation pass
-- P9-T03: manifest freeze and release-candidate gate
+- None (P0–P9 complete on `cursor-impl`)
 
 ## P8 completion notes
 
