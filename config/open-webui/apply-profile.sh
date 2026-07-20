@@ -6,6 +6,10 @@ readonly ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 . "$ROOT/scripts/lib/common.sh"
 # shellcheck source=../../scripts/lib/profile.sh
 . "$ROOT/scripts/lib/profile.sh"
+# shellcheck source=../../scripts/lib/backends.sh
+. "$ROOT/scripts/lib/backends.sh"
+# shellcheck source=../../scripts/lib/inference.sh
+. "$ROOT/scripts/lib/inference.sh"
 
 readonly WEBUI_URL="${OPEN_WEBUI_URL:-http://127.0.0.1:3000}"
 
@@ -21,6 +25,10 @@ require_command curl
 require_command jq
 require_command docker
 
+agent_lab_backends_init "$ROOT/scripts"
+agent_lab_inference_init "$ROOT/scripts"
+agent_lab_inference_ensure_default_env
+
 profile_value() {
   agent_lab_effective_profile "$profile" | awk -F= -v key="$1" '$1 == key {sub(/^[^=]*=/, ""); print; exit}'
 }
@@ -30,7 +38,12 @@ engine=$(profile_value WEB_SEARCH_ENGINE)
 [[ $engine != none ]] || engine=''
 agent_lab_load_profile "$profile"
 docker info >/dev/null 2>&1 || die 'Docker engine is unavailable' || exit 1
-docker compose --project-directory "$ROOT" --env-file "$ROOT/.env" -f "$ROOT/compose.yaml" \
+
+compose_env=(--env-file "$ROOT/.env")
+if [[ -r "$AGENT_LAB_INFERENCE_ENV_FILE" ]]; then
+  compose_env+=(--env-file "$AGENT_LAB_INFERENCE_ENV_FILE")
+fi
+docker compose --project-directory "$ROOT" "${compose_env[@]}" -f "$ROOT/compose.yaml" \
   up --detach --no-build --force-recreate open-webui >/dev/null
 for _ in {1..240}; do
   curl --fail --silent --max-time 2 "$WEBUI_URL/health" >/dev/null 2>&1 && break
@@ -55,6 +68,9 @@ response=$(curl --fail --silent --show-error --max-time 60 \
   die 'failed to apply Open WebUI profile settings' || exit 1
 jq -e --argjson enabled "$enabled" --arg engine "$engine" '.web.ENABLE_WEB_SEARCH == $enabled and .web.WEB_SEARCH_ENGINE == $engine and .web.WEB_SEARCH_TRUST_ENV == false' <<<"$response" >/dev/null ||
   die 'Open WebUI did not persist the selected search profile' || exit 1
+
+# Re-apply active inference providers after recreate (persistent DB + profile).
+agent_lab_inference_apply "$(agent_lab_backend_active)" false
 
 state_file=$(agent_lab_profile_state_file)
 state_dir=$(dirname "$state_file")

@@ -6,6 +6,8 @@ readonly SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 . "$SCRIPT_DIR/lib/common.sh"
 # shellcheck source=lib/profile.sh
 . "$SCRIPT_DIR/lib/profile.sh"
+# shellcheck source=lib/backends.sh
+. "$SCRIPT_DIR/lib/backends.sh"
 
 readonly ROOT="$(repository_root "$SCRIPT_DIR")"
 readonly COMPONENTS_FILE="${AGENT_LAB_COMPONENTS_FILE:-$ROOT/config/components.json}"
@@ -20,6 +22,8 @@ readonly VOLUME="${AGENT_LAB_WEBUI_VOLUME:-agent-lab-open-webui-data}"
 readonly CONTAINER="${AGENT_LAB_WEBUI_CONTAINER:-agent-lab-open-webui-1}"
 readonly DISK_PATH="${AGENT_LAB_DISK_PATH:-$ROOT}"
 readonly MIN_FREE_BYTES="${AGENT_LAB_MIN_FREE_BYTES:-10737418240}"
+
+agent_lab_backends_init "$SCRIPT_DIR"
 
 usage() {
   cat <<'EOF'
@@ -199,6 +203,11 @@ if [[ "$profile_valid" == true ]]; then
 fi
 reranker_enabled=$(jq -r '.rag.reranking.enabled' "$MODELS_FILE")
 
+backends_summary='{"schema_version":1,"active_backend":"ollama","default_backend":"ollama","backends":[]}'
+if [[ -r "$AGENT_LAB_BACKENDS_FILE" ]]; then
+  backends_summary=$(agent_lab_backend_status_all_json 2>/dev/null || printf '%s' "$backends_summary")
+fi
+
 healthy=$(jq -nr \
   --argjson profile "$profile_valid" --argjson ollama "$ollama_reachable" \
   --argjson response "$ollama_response_valid" --argjson version "$ollama_version_matches" \
@@ -218,7 +227,8 @@ report=$(jq -cn \
   --arg embedding_revision "$expected_embedding_revision" --argjson cache_ready "$cache_ready" --arg cache_action "$cache_action" \
   --argjson models "$models" --arg disk_path "$DISK_PATH" --argjson free_bytes "$free_bytes" --argjson minimum_free_bytes "$MIN_FREE_BYTES" --argjson disk_ok "$disk_ok" --arg disk_action "$disk_action" \
   --argjson environment_exists "$environment_exists" --arg environment_action "$environment_action" --argjson search_enabled "$search_enabled" --arg search_mode "$search_mode" --argjson reranker_enabled "$reranker_enabled" \
-  '{schema_version:1,healthy:$healthy,profile:{selected:$profile,path:$profile_path,valid:$profile_valid,action:$profile_action},ollama:{endpoint:$ollama_endpoint,reachable:$ollama_reachable,response_valid:$ollama_response_valid,version:$ollama_version,expected_version:$expected_ollama_version,version_matches:$ollama_version_matches,action:$ollama_action,active_models:$active_models,binary:{path:$ollama_binary,sha256:$ollama_binary_sha,expected_sha256:$expected_ollama_sha,matches:$ollama_binary_matches,action:$ollama_binary_action}},open_webui:{endpoint:$webui_endpoint,reachable:$webui_reachable,response_valid:$webui_response_valid,container_state:$container_state,version:$webui_version,image_reference:$webui_image_reference,expected_digest:$expected_webui_digest,digest_matches:$webui_digest_matches,docker_available:$docker_available,action:$webui_action},volume:{name:$volume,exists:$volume_exists,action:$volume_action},embedding_cache:{revision:$embedding_revision,ready:$cache_ready,action:$cache_action},models:$models,disk:{path:$disk_path,free_bytes:$free_bytes,minimum_free_bytes:$minimum_free_bytes,ok:$disk_ok,action:$disk_action},environment:{exists:$environment_exists,action:$environment_action},optional_features:{rag:true,reranker:$reranker_enabled,web_search:$search_enabled,web_search_mode:$search_mode}}')
+  --argjson backends "$backends_summary" \
+  '{schema_version:1,healthy:$healthy,profile:{selected:$profile,path:$profile_path,valid:$profile_valid,action:$profile_action},ollama:{endpoint:$ollama_endpoint,reachable:$ollama_reachable,response_valid:$ollama_response_valid,version:$ollama_version,expected_version:$expected_ollama_version,version_matches:$ollama_version_matches,action:$ollama_action,active_models:$active_models,binary:{path:$ollama_binary,sha256:$ollama_binary_sha,expected_sha256:$expected_ollama_sha,matches:$ollama_binary_matches,action:$ollama_binary_action}},open_webui:{endpoint:$webui_endpoint,reachable:$webui_reachable,response_valid:$webui_response_valid,container_state:$container_state,version:$webui_version,image_reference:$webui_image_reference,expected_digest:$expected_webui_digest,digest_matches:$webui_digest_matches,docker_available:$docker_available,action:$webui_action},volume:{name:$volume,exists:$volume_exists,action:$volume_action},embedding_cache:{revision:$embedding_revision,ready:$cache_ready,action:$cache_action},models:$models,disk:{path:$disk_path,free_bytes:$free_bytes,minimum_free_bytes:$minimum_free_bytes,ok:$disk_ok,action:$disk_action},environment:{exists:$environment_exists,action:$environment_action},optional_features:{rag:true,reranker:$reranker_enabled,web_search:$search_enabled,web_search_mode:$search_mode},backends:$backends}')
 
 if [[ "$json" == true ]]; then
   printf '%s\n' "$report"
@@ -235,6 +245,8 @@ jq -r '
   (.models[] | "MODEL           \(.alias) -> \(.tag) \(.state)"),
   "DISK            \(.disk.free_bytes) bytes free (minimum \(.disk.minimum_free_bytes))",
   "OPTIONAL        rag=enabled reranker=\(.optional_features.reranker) web_search=\(.optional_features.web_search) mode=\(.optional_features.web_search_mode)",
+  "INFERENCE       active=\(.backends.active_backend // "unknown") default=\(.backends.default_backend // "unknown")",
+  ((.backends.backends // [])[] | "BACKEND         \(.id) \(.state) readiness=\(.readiness)"),
   "OVERALL         \(if .healthy then "healthy" else "attention-required" end)"
 ' <<<"$report"
 

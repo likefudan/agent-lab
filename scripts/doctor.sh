@@ -4,10 +4,14 @@ set -euo pipefail
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 # shellcheck source=lib/common.sh
 . "$SCRIPT_DIR/lib/common.sh"
+# shellcheck source=lib/backends.sh
+. "$SCRIPT_DIR/lib/backends.sh"
 
 failures=0
 warnings=0
 passes=0
+
+agent_lab_backends_init "$SCRIPT_DIR"
 
 pass_check() { printf 'PASS  %s\n' "$1"; passes=$((passes + 1)); }
 warn_check() { printf 'WARN  %s\n' "$1"; warnings=$((warnings + 1)); }
@@ -85,6 +89,31 @@ for tool in node npm promptfoo; do
         warn_check "$tool: deferred evaluation tool not installed"
     fi
 done
+
+if [[ -r "${AGENT_LAB_BACKENDS_FILE:-}" ]]; then
+    if agent_lab_mlx_venv_ready; then
+        pass_check "MLX venv: ready at $AGENT_LAB_MLX_VENV"
+    else
+        warn_check "MLX venv: missing or incomplete at $AGENT_LAB_MLX_VENV (optional until mlx_* start)"
+    fi
+    while IFS= read -r backend_id; do
+        state=$(agent_lab_backend_probe "$backend_id")
+        readiness=$(agent_lab_backend_readiness "$backend_id")
+        case $state in
+            running)
+                pass_check "backend $backend_id: running (readiness=$readiness)"
+                ;;
+            missing)
+                warn_check "backend $backend_id: missing (install optional runtime or weights)"
+                ;;
+            *)
+                warn_check "backend $backend_id: $state (readiness=$readiness; not started)"
+                ;;
+        esac
+    done < <(agent_lab_backend_ids)
+else
+    warn_check 'backend catalog: not readable; skip backend readiness'
+fi
 
 printf 'SUMMARY pass/warn/fail: %s/%s/%s\n' "$passes" "$warnings" "$failures"
 [ "$failures" -eq 0 ]

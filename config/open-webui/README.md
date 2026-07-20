@@ -19,3 +19,11 @@ after first login, then continue treating `.env` as sensitive.
 Authentication settings are seeded into Open WebUI's database on first start.
 The named `agent-lab-open-webui-data` volume contains the complete application
 state and must be preserved and backed up as one unit.
+
+Inference provider wiring follows the active backend (see
+`config/inference/README.md`). Default is Ollama via
+`host.docker.internal:11434`. `agent-lab backend use <id>` /
+`apply-inference` switches between the Ollama-native connection and an
+OpenAI-compatible `/v1` connection; non-Ollama backends disable the Ollama
+provider so chat cannot silently fall through. Optional second connection for
+a vision split (`mlx_lm` + `mlx_vlm`) is documented under `config/inference/`.

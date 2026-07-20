@@ -4,15 +4,22 @@ set -euo pipefail
 
 readonly SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 readonly REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+readonly KNOWN_BACKEND_IDS='["ollama","mlx_lm","mlx_vlm","lm_studio","llama_cpp"]'
 
 if [[ $# -eq 0 ]]; then
   components_file="${REPO_ROOT}/config/components.json"
   models_file="${REPO_ROOT}/config/models.json"
+  backends_file="${REPO_ROOT}/config/backends.json"
 elif [[ $# -eq 2 ]]; then
   components_file="$1"
   models_file="$2"
+  backends_file="${REPO_ROOT}/config/backends.json"
+elif [[ $# -eq 3 ]]; then
+  components_file="$1"
+  models_file="$2"
+  backends_file="$3"
 else
-  echo "Usage: $0 [COMPONENTS_JSON MODELS_JSON]" >&2
+  echo "Usage: $0 [COMPONENTS_JSON MODELS_JSON [BACKENDS_JSON]]" >&2
   exit 2
 fi
 
@@ -34,8 +41,10 @@ check_json_syntax() {
 
 components_valid=true
 models_valid=true
+backends_valid=true
 check_json_syntax "components" "$components_file" || components_valid=false
 check_json_syntax "models" "$models_file" || models_valid=false
+check_json_syntax "backends" "$backends_file" || backends_valid=false
 
 if [[ "$components_valid" == true ]]; then
   if component_errors="$(jq -r '
@@ -117,8 +126,92 @@ if [[ "$components_valid" == true ]]; then
   fi
 fi
 
+backend_ids_json='[]'
+if [[ "$backends_valid" == true ]]; then
+  if backend_errors="$(jq -r --argjson known "$KNOWN_BACKEND_IDS" '
+    def string: type == "string" and length > 0;
+    def local_url:
+      type == "string" and
+      test("^https?://(127\\.0\\.0\\.1|localhost)(:|/|$)");
+    def local_bind:
+      type == "string" and
+      test("^(127\\.0\\.0\\.1|localhost):[0-9]+$");
+    def exposed_secret:
+      . as $value |
+      ($value | type == "string") and
+      ($value | length > 0) and
+      ($value | test("^<[^>]+>$") | not);
+    def secret_errors($root):
+      [paths(scalars) as $path |
+       (getpath($path)) as $value |
+       ($path[-1] | tostring | ascii_downcase) as $key |
+       select((($key | test("(^|_)(password|secret|token|api_key|private_key)($|_)")) and
+               ($value | exposed_secret)) or
+              (($value | type == "string") and
+               ($value | test("gh[pousr]_[A-Za-z0-9]{20,}|sk-[A-Za-z0-9]{20,}|-----BEGIN [A-Z ]*PRIVATE KEY-----")))) |
+       "\($root)\($path | map("[\(.|tojson)]") | join("")): catalog contains a secret-like value"];
+
+    . as $catalog |
+    ([if (.schema_version | type) != "number" or .schema_version != 1
+       then "backends.schema_version: expected integer 1" else empty end,
+      if (.decision | string | not) then "backends.decision: expected a decision-record path" else empty end,
+      if (.default_backend | string | not) then "backends.default_backend: expected a backend id" else empty end,
+      if (.backends | type) != "array" or (.backends | length) == 0
+       then "backends.backends: expected a non-empty array" else empty end] +
+     if (.backends | type) == "array" then
+       ([.backends | to_entries[] | select((.value | type) != "object") |
+          "backends.backends[\(.key)]: expected an object"] +
+        [.backends | map(select(type == "object")) | group_by(.id)[] |
+         select((.[0].id | string) and length > 1) |
+         "backends.backends: duplicate id \(.[0].id | tojson)"] +
+        [.backends | to_entries[] | select((.value | type) == "object") | .key as $i | .value as $b |
+          [if ($b.id | string | not) then "backends.backends[\($i)].id: expected a non-empty immutable identifier" else empty end,
+           if ($b.id | string) and ($known | index($b.id)) == null
+             then "backends.backends[\($i)].id: unknown backend id \($b.id | tojson)" else empty end,
+           if ($b.name | string | not) then "backends.backends[\($i)].name: expected a non-empty string" else empty end,
+           if (["managed", "detect", "optional"] | index($b.lifecycle)) == null
+             then "backends.backends[\($i)].lifecycle: expected managed, detect, or optional" else empty end,
+           if ($b.port | type) != "number" or $b.port < 1 or $b.port > 65535
+             then "backends.backends[\($i)].port: expected an integer port 1-65535" else empty end,
+           if ($b.bind | local_bind | not)
+             then "backends.backends[\($i)].bind: expected loopback host:port" else empty end,
+           if ($b.openai_base_url | local_url | not) or ($b.openai_base_url | test("/v1/?$") | not)
+             then "backends.backends[\($i)].openai_base_url: expected local OpenAI /v1 base URL" else empty end,
+           if ($b.openai_base_url_template | string | not) or ($b.openai_base_url_template | test("\\{port\\}") | not)
+             then "backends.backends[\($i)].openai_base_url_template: expected a template containing {port}" else empty end,
+           if ($b.health | type) != "object" then "backends.backends[\($i)].health: expected an object" else empty end,
+           if ($b.health.path | string | not) or ($b.health.path | startswith("/") | not)
+             then "backends.backends[\($i)].health.path: expected a non-empty absolute path" else empty end,
+           if ($b.health.url | local_url | not)
+             then "backends.backends[\($i)].health.url: expected a local health probe URL" else empty end,
+           if ($b.notes | string | not) then "backends.backends[\($i)].notes: expected a non-empty notes string" else empty end,
+           if $b.id == "ollama" and (($b.native_api | local_url | not) or ($b.native_api | test("/api/?$") | not))
+             then "backends.backends[\($i)].native_api: ollama requires a local native /api base URL" else empty end] | .[]] | flatten)
+      else [] end +
+     if (.backends | type) == "array" and (.default_backend | string) then
+       [([( .backends[] | select(type == "object") | .id )] | index($catalog.default_backend)) as $idx |
+        if $idx == null then
+          "backends.default_backend: unknown backend id \($catalog.default_backend | tojson)"
+        else empty end]
+      else [] end +
+     if (.backends | type) == "array" then
+       [($known - [(.backends[] | select(type == "object") | .id)]) as $missing |
+        if ($missing | length) > 0 then
+          "backends.backends: missing required backend ids \($missing | tojson)"
+        else empty end]
+      else [] end + secret_errors("backends")) | .[]
+  ' "$backends_file" 2>&1)"; then
+    if [[ -n "$backend_errors" ]]; then
+      errors+="${backend_errors}"$'\n'
+    fi
+  else
+    errors+="backends: semantic validation could not process ${backends_file}: ${backend_errors}"$'\n'
+  fi
+  backend_ids_json="$(jq -c '[.backends[]? | select(type == "object") | .id | select(type == "string" and length > 0)]' "$backends_file" 2>/dev/null || echo '[]')"
+fi
+
 if [[ "$models_valid" == true ]]; then
-  if model_errors="$(jq -r '
+  if model_errors="$(jq -r --argjson known "$KNOWN_BACKEND_IDS" --argjson backend_ids "$backend_ids_json" '
     def string: type == "string" and length > 0;
     def digest: string and test("^sha256:[0-9a-f]{64}$");
     def revision: string and test("^[0-9a-f]{40}$|^[0-9a-f]{64}$");
@@ -135,6 +228,27 @@ if [[ "$models_valid" == true ]]; then
               (($value | type == "string") and
                ($value | test("gh[pousr]_[A-Za-z0-9]{20,}|sk-[A-Za-z0-9]{20,}|-----BEGIN [A-Z ]*PRIVATE KEY-----")))) |
        "\($root)\($path | map("[\(.|tojson)]") | join("")): catalog contains a secret-like value"];
+    def nullable_string_or_null: type == "null" or string;
+    def backend_slot_errors($path; $slot):
+      [if ($slot | type) != "object" then "\($path): expected a backend artifact slot object" else empty end,
+       if (["executable", "candidate", "rejected", "unsupported"] | index($slot.status)) == null
+         then "\($path).status: expected executable, candidate, rejected, or unsupported" else empty end,
+       if ($slot | has("artifact_id") | not) or ($slot.artifact_id | nullable_string_or_null | not)
+         then "\($path).artifact_id: expected string or null" else empty end,
+       if ($slot | has("digest") | not)
+         then "\($path).digest: expected sha256 digest, null, or omitted only when present as null for candidates" else empty end,
+       if ($slot.digest != null) and ($slot.digest | digest | not)
+         then "\($path).digest: expected sha256:<64 lowercase hex> or null" else empty end,
+       if ($slot | has("revision") | not)
+         then "\($path).revision: expected immutable revision or null" else empty end,
+       if ($slot.revision != null) and ($slot.revision | revision | not)
+         then "\($path).revision: expected immutable 40- or 64-hex revision or null" else empty end,
+       if $slot.status == "executable" and ($slot.artifact_id | string | not)
+         then "\($path).artifact_id: executable slots require a non-empty artifact id" else empty end,
+       if $slot.status == "executable" and ($slot.digest == null) and ($slot.revision == null)
+         then "\($path): executable slots require digest or revision" else empty end,
+       if $slot.status == "candidate" and (($slot.digest != null) or ($slot.revision != null)) and ($slot.artifact_id | string | not)
+         then "\($path).artifact_id: candidate slots with pins require an artifact id" else empty end];
 
     . as $catalog |
     ([if (.schema_version | type) != "number" or .schema_version != 1
@@ -179,7 +293,22 @@ if [[ "$models_valid" == true ]]; then
                "models.models[\($i)].blobs[\(.key)].digest: expected sha256:<64 lowercase hex>")
              else empty end,
            if ($m.executable | not) and ($m.blob_digest_set.digest | digest | not)
-             then "models.models[\($i)].blob_digest_set.digest: non-executable qualified artifacts require an immutable digest set" else empty end] | .[]] | flatten)
+             then "models.models[\($i)].blob_digest_set.digest: non-executable qualified artifacts require an immutable digest set" else empty end,
+           if ($m | has("backends")) then
+             (if ($m.backends | type) != "object" then
+                "models.models[\($i)].backends: expected a per-backend artifact map"
+              else
+                (
+                  [($m.backends | keys_unsorted[]) as $bid |
+                    if (($backend_ids | length) > 0 and ($backend_ids | index($bid)) == null) or
+                       (($backend_ids | length) == 0 and ($known | index($bid)) == null)
+                      then "models.models[\($i)].backends: unknown backend id \($bid | tojson)"
+                      else empty end] +
+                  [($m.backends | to_entries[]) as $entry |
+                    backend_slot_errors("models.models[\($i)].backends.\($entry.key)"; $entry.value)[]]
+                )[]
+              end)
+             else empty end] | .[]] | flatten)
       else [] end +
      if (.defaults | type) == "object" and (.models | type) == "array" then
        [.defaults | to_entries[] | .key as $role | .value as $alias |
@@ -194,6 +323,20 @@ if [[ "$models_valid" == true ]]; then
             then "models.defaults.\($role): alias \($alias | tojson) lacks required \($capability) capability"
             else empty end
         end]
+      else [] end +
+     if (.defaults | type) == "object" and (.models | type) == "array" then
+       ([.defaults | to_entries[] | .value | select(type == "string")] | unique) as $role_aliases |
+       [ $role_aliases[] as $alias |
+         ([ $catalog.models[] | select(type == "object") | select(.alias == $alias) ][0]) as $selected |
+         if ($selected | type) != "object" then
+           "models.backends: role alias \($alias | tojson) is missing from models"
+         elif ($selected.backends | type) != "object" then
+           "models.models alias \($alias | tojson): role aliases require a backends map"
+         else
+           (($backend_ids | length) > 0 | if . then $backend_ids else $known end) as $required |
+           (($required - ($selected.backends | keys))[]) as $missing |
+           "models.models alias \($alias | tojson).backends: missing required backend slot \($missing | tojson)"
+         end]
       else [] end + secret_errors("models")) | .[]
   ' "$models_file" 2>&1)"; then
     if [[ -n "$model_errors" ]]; then

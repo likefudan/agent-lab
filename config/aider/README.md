@@ -1,8 +1,12 @@
 # Aider configuration seed
 
 This directory pins the repository-aware coding client and its qualified local
-model settings. Copy the three seed configuration files into the root of the
-Git repository where Aider will work:
+model settings for the default `ollama` backend. Prefer
+`agent-lab backend use <id>` / `agent-lab apply-inference`, which write
+`.agent-lab/aider/aider.conf.yml` for the active backend (Ollama `/v1` or
+another loopback OpenAI-compatible `/v1`).
+
+Manual copy (ollama path only):
 
 ```sh
 cp /path/to/agent-lab/config/aider/aider.conf.yml .aider.conf.yml
@@ -13,7 +17,7 @@ cp /path/to/agent-lab/config/aider/aider.model.metadata.json \
 mkdir -p .agent-lab/aider
 ```
 
-The seed selects `openai/gemma4:12b` through Ollama's loopback-only `/v1`
+The ollama seed selects `openai/gemma4:12b` through Ollama's loopback-only `/v1`
 endpoint. `ollama` is a local compatibility placeholder accepted as the OpenAI
 API key; it is not a secret or hosted credential. The 4,096-token context and
 1,024-token completion budget are the settings qualified by Agent Lab, not the

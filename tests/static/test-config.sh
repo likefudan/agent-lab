@@ -7,6 +7,7 @@ readonly REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 readonly VALIDATOR="${REPO_ROOT}/scripts/validate-config.sh"
 readonly COMPONENTS="${REPO_ROOT}/config/components.json"
 readonly MODELS="${REPO_ROOT}/config/models.json"
+readonly BACKENDS="${REPO_ROOT}/config/backends.json"
 readonly FIXTURE_DIR="$(mktemp -d "${TMPDIR:-/tmp}/agent-lab-config-test.XXXXXX")"
 trap 'rm -rf "$FIXTURE_DIR"' EXIT
 
@@ -26,9 +27,10 @@ expect_pass() {
   local name="$1"
   local components="$2"
   local models="$3"
+  local backends="${4:-$BACKENDS}"
   local output
 
-  if ! output="$(bash "$VALIDATOR" "$components" "$models" 2>&1)"; then
+  if ! output="$(bash "$VALIDATOR" "$components" "$models" "$backends" 2>&1)"; then
     printf '%s\n' "$output" >&2
     fail "$name should pass"
   fi
@@ -41,9 +43,10 @@ expect_fail() {
   local expected="$2"
   local components="$3"
   local models="$4"
+  local backends="${5:-$BACKENDS}"
   local output
 
-  if output="$(bash "$VALIDATOR" "$components" "$models" 2>&1)"; then
+  if output="$(bash "$VALIDATOR" "$components" "$models" "$backends" 2>&1)"; then
     fail "$name should fail"
   fi
   [[ "$output" == *"$expected"* ]] || {
@@ -67,7 +70,14 @@ make_model_fixture() {
   printf '%s\n' "${FIXTURE_DIR}/${name}.models.json"
 }
 
-expect_pass "checked-in catalogs" "$COMPONENTS" "$MODELS"
+make_backend_fixture() {
+  local name="$1"
+  local filter="$2"
+  jq "$filter" "$BACKENDS" >"${FIXTURE_DIR}/${name}.backends.json"
+  printf '%s\n' "${FIXTURE_DIR}/${name}.backends.json"
+}
+
+expect_pass "checked-in catalogs" "$COMPONENTS" "$MODELS" "$BACKENDS"
 
 printf '{not json\n' >"${FIXTURE_DIR}/syntax.components.json"
 expect_fail "invalid JSON syntax" "components: invalid JSON syntax" \
@@ -130,9 +140,34 @@ expect_fail "non-executable default alias" "models.defaults.chat" "$COMPONENTS" 
 fixture="$(make_model_fixture incapable-default '.defaults.vision = "qwen-9b"')"
 expect_fail "incapable default alias" "lacks required vision capability" "$COMPONENTS" "$fixture"
 
+printf '{not json\n' >"${FIXTURE_DIR}/syntax.backends.json"
+expect_fail "invalid backends JSON syntax" "backends: invalid JSON syntax" \
+  "$COMPONENTS" "$MODELS" "${FIXTURE_DIR}/syntax.backends.json"
+
+fixture="$(make_backend_fixture unknown-backend-id '.backends[1].id = "custom_gateway"')"
+expect_fail "unknown backend id" "unknown backend id" "$COMPONENTS" "$MODELS" "$fixture"
+
+fixture="$(make_backend_fixture missing-backend-field 'del(.backends[0].health)')"
+expect_fail "missing required backend field" "backends.backends[0].health" "$COMPONENTS" "$MODELS" "$fixture"
+
+fixture="$(make_backend_fixture missing-lifecycle 'del(.backends[2].lifecycle)')"
+expect_fail "missing backend lifecycle" "backends.backends[2].lifecycle" "$COMPONENTS" "$MODELS" "$fixture"
+
+fixture="$(make_backend_fixture remote-openai '.backends[1].openai_base_url = "https://api.example.com/v1"')"
+expect_fail "remote backend OpenAI URL" "openai_base_url: expected local OpenAI /v1" "$COMPONENTS" "$MODELS" "$fixture"
+
+fixture="$(make_model_fixture unknown-model-backend '.models[3].backends.not_a_backend = {"status":"candidate","artifact_id":null,"digest":null,"revision":null}')"
+expect_fail "unknown model backend id" "unknown backend id" "$COMPONENTS" "$fixture"
+
+fixture="$(make_model_fixture missing-backend-slot 'del(.models[3].backends.mlx_lm)')"
+expect_fail "missing role backend slot" "missing required backend slot" "$COMPONENTS" "$fixture"
+
+fixture="$(make_model_fixture missing-backends-map 'del(.models[3].backends)')"
+expect_fail "missing role backends map" "role aliases require a backends map" "$COMPONENTS" "$fixture"
+
 fixture="$(make_component_fixture all-errors '.components += [.components[0]] | .components[0].endpoints.native_api = "https://remote.example/api"')"
 output=""
-if output="$(bash "$VALIDATOR" "$fixture" "$MODELS" 2>&1)"; then
+if output="$(bash "$VALIDATOR" "$fixture" "$MODELS" "$BACKENDS" 2>&1)"; then
   fail "all-errors fixture should fail"
 fi
 [[ "$output" == *"duplicate id"* ]] || fail "validator did not print duplicate-id error"

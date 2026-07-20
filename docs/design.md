@@ -17,9 +17,9 @@ this project.
 
 - Apple Silicon, initially an M5 MacBook Air
 - 24 GB unified memory
-- Ollama inference running natively on macOS for the MVP, using the local
-  artifact and backend that pass the required modality tests
-- Direct MLX-VLM and Hugging Face integration deferred to a later phase
+- Local inference on loopback: MVP used native Ollama only; post-MVP (P10)
+  selects among first-class OpenAI-compatible backends (`ollama`, `mlx_lm`,
+  `mlx_vlm`, `lm_studio`, `llama_cpp`) with one active entry at a time
 - Open WebUI and optional supporting services running in containers
 
 ## Design principles
@@ -42,16 +42,19 @@ this project.
 | Capability | Component | Status | Agent Lab usage |
 | --- | --- | --- | --- |
 | Web chat, conversations, tools, RAG, citations, and web search | [Open WebUI](https://github.com/open-webui/open-webui) | Third-party source-available software with branding conditions | Run the pinned container without forking or rebranding it |
-| MVP inference, model installation, model lifecycle, and OpenAI-compatible API | [Ollama](https://github.com/ollama/ollama) | Open source, MIT | Run natively on macOS and restrict the server to qualified local artifacts; Ollama selects the compatible native backend |
-| Later direct Apple Silicon inference | [MLX-VLM](https://github.com/Blaizzy/mlx-vlm) and [MLX](https://github.com/ml-explore/mlx) | Open source; deferred | Add only for Hugging Face models or low-level controls that Ollama cannot provide |
-| General terminal chat, tools, and image input | [LLM CLI](https://github.com/simonw/llm) | Open source, Apache-2.0 | Connect directly to the inference endpoint; keep Open WebUI-specific RAG integration out of the MVP |
-| Repository-aware coding | [Aider](https://github.com/Aider-AI/aider) | Open source, Apache-2.0 | Connect directly to the local OpenAI-compatible inference endpoint |
+| MVP and first-class Ollama backend: model installation, lifecycle, native and OpenAI-compatible APIs | [Ollama](https://github.com/ollama/ollama) | Open source, MIT | Run natively on macOS; qualified local artifacts only; sole MVP entry; post-MVP one selectable backend among peers |
+| Direct Apple Silicon text inference | [`mlx_lm.server`](https://github.com/ml-explore/mlx-lm) / [MLX](https://github.com/ml-explore/mlx) | Open source, MIT | Post-MVP first-class `mlx_lm` backend via Hugging Face / MLX weights and OpenAI-compatible `/v1` |
+| Direct Apple Silicon vision / multimodal inference | [MLX-VLM](https://github.com/Blaizzy/mlx-vlm) | Open source | Post-MVP first-class `mlx_vlm` backend; optional second Open WebUI connection for vision split |
+| Optional local GUI / server peer | [LM Studio](https://lmstudio.ai/) | Third-party application | Post-MVP `lm_studio` backend; detect local OpenAI-compatible server (default port `1234` or documented detection) |
+| GGUF / Metal benchmark and fallback server | [llama.cpp](https://github.com/ggml-org/llama.cpp) server | Open source, MIT | Post-MVP first-class `llama_cpp` backend with its own GGUF artifact path |
+| General terminal chat, tools, and image input | [LLM CLI](https://github.com/simonw/llm) | Open source, Apache-2.0 | Connect to the active OpenAI-compatible inference base URL; keep Open WebUI-specific RAG integration out of the MVP |
+| Repository-aware coding | [Aider](https://github.com/Aider-AI/aider) | Open source, Apache-2.0 | Connect to the active local OpenAI-compatible inference base URL |
 | Default vector storage, hybrid retrieval, and reranking | Open WebUI RAG with Chroma | Third-party functionality | Use Open WebUI's implementation and local models rather than build a RAG service |
 | Advanced document extraction and OCR | [Docling](https://github.com/docling-project/docling) or an Open WebUI-supported extractor | Open source; optional | Add only when the built-in extractor is insufficient |
 | Web search | Open WebUI with DuckDuckGo | Third-party functionality | Use as the initial zero-configuration online search path |
 | Self-hosted search aggregation | [SearXNG](https://github.com/searxng/searxng) | Open source; optional | Add as a container when provider control is worth the extra service |
-| MVP model registry and local model store | Ollama model library and `~/.ollama/models` | Third-party functionality | Approve artifacts only for roles whose required capabilities they pass, and record their immutable digests |
-| Later model and artifact download cache | [Hugging Face Hub](https://github.com/huggingface/huggingface_hub) | Open source client and hosted model registry; deferred | Add the standard Hugging Face cache when direct MLX-VLM support is introduced |
+| Ollama model registry and local model store | Ollama model library and `~/.ollama/models` | Third-party functionality | Approve artifacts only for roles whose required capabilities they pass, and record their immutable digests |
+| MLX / Hugging Face artifact cache | [Hugging Face Hub](https://github.com/huggingface/huggingface_hub) | Open source client and hosted model registry | Post-MVP cache for `mlx_lm` / `mlx_vlm` pins; separate from Ollama and GGUF stores |
 | Prompt and application regression testing | [Promptfoo](https://github.com/promptfoo/promptfoo) | Open source, MIT | Run Agent Lab-owned acceptance cases against the local API |
 | Standard multimodal evaluation | [VLMEvalKit](https://github.com/open-compass/VLMEvalKit) | Open source, Apache-2.0 | Use for broader image-understanding comparisons when needed |
 | Outbound connection control | [LuLu](https://github.com/objective-see/LuLu) or macOS `pf` | Open source third-party firewall or operating-system facility | Provide strict offline verification; configuration remains an explicit user action |
@@ -71,23 +74,27 @@ Agent Lab owns only the integration-specific layer:
 
 - A version-pinned component manifest and installation documentation
 - Container configuration for Open WebUI and optional services
-- Native Ollama configuration and later, if needed, MLX-VLM launch
-  configuration
-- A model catalog containing approved Ollama tags, immutable digests, later
-  Hugging Face revisions, and default inference parameters
+- Native Ollama configuration and post-MVP launch/detect helpers for other
+  first-class backends (`mlx_lm`, `mlx_vlm`, `llama_cpp`, `lm_studio`)
+- A model catalog containing approved Ollama tags, immutable digests, per-backend
+  Hugging Face revisions or GGUF/LM Studio ids, and default inference parameters
+- Active-backend selection (`AGENT_LAB_INFERENCE_BACKEND` + OpenAI-compatible
+  base URL) as the day-to-day client entry after P10
 - Online and offline configuration profiles
 - Setup, start, stop, status, health-check, backup, and offline-verification
   scripts
 - Small compatibility adapters only when an existing protocol boundary is
   insufficient
 - Project-specific acceptance tests and evaluation fixtures
-- Hardware-specific benchmark results and default model selection
+- Hardware-specific benchmark results and default model / backend selection
 - Architecture, operational, privacy, and recovery documentation
 
-Agent Lab will not initially implement a web UI, inference engine, model
-gateway, model supervisor, RAG engine, vector database, document parser, search
-broker, page fetcher, coding agent, or general-purpose LLM CLI. It will also not
-operate two inference runtimes during the MVP.
+Agent Lab will not implement a web UI, inference engine, model gateway that
+silently multiplexes backends, RAG engine, vector database, document parser,
+search broker, page fetcher, coding agent, or general-purpose LLM CLI. The MVP
+operated a single inference runtime (Ollama). Post-MVP may install multiple
+backends but runs at most one heavy server for day-to-day use on 24 GB hosts
+(decision 0011).
 
 ## Initial models
 
@@ -116,27 +123,38 @@ approved standard artifact's immutable manifest digest, expected blobs,
 license, disk size, and minimum compatible Ollama version. The MVP also sets
 `OLLAMA_MAX_LOADED_MODELS=1` and disables Ollama cloud features.
 
-In a later compatibility phase, Agent Lab may add corresponding MLX-community
-repositories through direct MLX-VLM and pin their exact Hugging Face revisions.
-Ollama and Hugging Face artifacts are separate copies and are not assumed to
-share storage. This deferred direct MLX-VLM path does not reinstate the rejected
-Ollama `-mlx` artifacts.
+In a later compatibility phase (P10), Agent Lab may add corresponding
+MLX-community repositories through direct `mlx_lm` / `mlx_vlm` and pin their
+exact Hugging Face revisions. Ollama, Hugging Face / MLX, llama.cpp GGUF, and
+LM Studio libraries are separate copies and are not assumed to share storage.
+Direct MLX paths do not reinstate the rejected Ollama `-mlx` artifacts.
 
 ## Inference runtime decision
 
 | Runtime | Decision | Reason |
 | --- | --- | --- |
-| Native Ollama | MVP | One open-source service supplies model pulls, lifecycle management, local inference, and OpenAI-compatible APIs; each artifact is exposed only for the text, code, tools, or image capabilities it passed |
-| MLX-VLM server | Later compatibility phase | Provides direct Hugging Face access and lower-level multimodal controls when Ollama lacks a model or feature |
-| `mlx_lm.server` | Not selected for the unified endpoint | It is an open-source MIT server from Apple's MLX project, but its documented server is for text generation rather than image input |
-| llama.cpp server | Benchmark fallback | Mature Metal and multimodal GGUF runtime, but it requires a separate artifact and lifecycle path from the approved Ollama artifacts |
+| Native Ollama (`ollama`) | MVP sole entry; post-MVP first-class backend | Supplies model pulls, lifecycle, local inference, native API, and OpenAI `/v1`; remains the shipped default until comparative benchmarks may change it |
+| `mlx_lm.server` (`mlx_lm`) | Post-MVP first-class text backend | Open-source MLX text server for Hugging Face / MLX weights; OpenAI-compatible `/v1` on a dedicated loopback port |
+| MLX-VLM server (`mlx_vlm`) | Post-MVP first-class vision / multimodal backend | Direct Hugging Face multimodal path when operators prefer MLX vision or split text/vision connections |
+| LM Studio local server (`lm_studio`) | Post-MVP optional peer | Detect (or safely manage) an existing local OpenAI-compatible server; default app port `1234` or documented detection |
+| llama.cpp server (`llama_cpp`) | Post-MVP first-class GGUF / Metal path | Mature Metal and multimodal GGUF runtime with a separate artifact lifecycle from Ollama |
 
-`mlx_lm.server` remains valuable for a future dedicated text-only model,
-especially if a coding benchmark shows an advantage. It is not the initial
-server because Agent Lab requires chat, coding, and image understanding through
-the same endpoint. Running MLX-LM for text and MLX-VLM for images would add two
-Python servers and duplicate lifecycle coordination that Ollama already
-provides.
+**Active entry (post-MVP):** clients use `AGENT_LAB_INFERENCE_BACKEND` plus the
+backend’s OpenAI-compatible base URL. Prefer `/v1` as the common contract.
+Ollama-native API is allowed only when the active backend is `ollama`.
+
+**Single-heavy-server policy:** on 24 GB unified memory, run at most one heavy
+inference server with a large model loaded for day-to-day use and for
+cross-backend benchmarks. Stop or unload before switching backends
+(decision 0011).
+
+**No custom gateway:** Agent Lab does not multiplex backends behind one fake
+Ollama endpoint. Optional vision split uses an explicit second Open WebUI
+connection (for example `mlx_lm` text + `mlx_vlm` vision), not a proxy.
+
+Suggested loopback ports: Ollama `11434`, mlx-lm `11435`, mlx-vlm `11436`,
+llama.cpp `11437`, LM Studio `1234` (or detected). Adjust only when a conflict
+is documented.
 
 ## System architecture
 
@@ -161,28 +179,33 @@ flowchart TB
             SearXNG["SearXNG<br/>optional third-party search service"]
         end
 
-        subgraph Native["Native macOS inference"]
-            Ollama["Native Ollama<br/>MVP · third-party open source"]
-            Active["One active Ollama model"]
-            Qwen9["qwen3.5:9b<br/>default chat · text/code/tools"]
-            Qwen4["qwen3.5:4b<br/>default fast · text/code/tools"]
-            Gemma["gemma4:12b<br/>default coding + vision · multimodal/tools"]
-
-            MLXVLM["MLX-VLM server<br/>later · third-party open source"]
+        subgraph Native["Native macOS inference · one heavy server active"]
+            ActiveEntry["Active backend entry<br/>AGENT_LAB_INFERENCE_BACKEND + OpenAI /v1"]
+            Ollama["Ollama · 11434<br/>MVP default · first-class"]
+            MLXLM["mlx_lm · 11435<br/>post-MVP text"]
+            MLXVLM["mlx_vlm · 11436<br/>post-MVP vision"]
+            LlamaCpp["llama.cpp · 11437<br/>post-MVP GGUF"]
+            LMStudio["LM Studio · 1234 or detected<br/>optional peer"]
+            ActiveModel["One loaded large model<br/>24 GB policy"]
+            Qwen9["qwen-9b role"]
+            Qwen4["qwen-4b role"]
+            Gemma["gemma-12b role"]
         end
 
         subgraph Storage["Local storage"]
             WebData[("Open WebUI data volume<br/>chats · settings · documents · vectors")]
-            OllamaStore[("Ollama model store<br/>MVP weights and manifests")]
-            HFCache[("Hugging Face cache<br/>later direct MLX weights")]
+            OllamaStore[("Ollama model store")]
+            HFCache[("Hugging Face / MLX cache")]
+            GGUFStore[("llama.cpp GGUF files")]
             Config[("Agent Lab configuration<br/>original")]
             Evals[("Acceptance tests and results<br/>original")]
         end
 
         Browser --> WebUI
-        LLMCLI -->|"Chat · CLI tools · images via Gemma"| Ollama
-        Aider -->|"Coding requests"| Ollama
-        WebUI -->|"OpenAI-compatible API"| Ollama
+        LLMCLI -->|"Active /v1 base URL"| ActiveEntry
+        Aider -->|"Active /v1 base URL"| ActiveEntry
+        WebUI -->|"Active /v1 · Ollama-native only if ollama"| ActiveEntry
+        WebUI -.->|"Optional second connection<br/>vision split"| MLXVLM
 
         WebUI --> RAG
         RAG --> WebData
@@ -190,22 +213,27 @@ flowchart TB
         WebUI --> Search
         Search -.->|"Optional provider"| SearXNG
 
-        Ollama --> Active
-        Active -.-> Qwen9
-        Active -.-> Qwen4
-        Active -.-> Gemma
-        Qwen9 --> OllamaStore
-        Qwen4 --> OllamaStore
-        Gemma --> OllamaStore
-
-        WebUI -.->|"Later additional connection"| MLXVLM
-        LLMCLI -.->|"Later optional endpoint"| MLXVLM
-        Aider -.->|"Later optional endpoint"| MLXVLM
-        MLXVLM -.-> HFCache
+        ActiveEntry --> Ollama
+        ActiveEntry --> MLXLM
+        ActiveEntry --> MLXVLM
+        ActiveEntry --> LlamaCpp
+        ActiveEntry --> LMStudio
+        Ollama --> ActiveModel
+        MLXLM --> ActiveModel
+        MLXVLM --> ActiveModel
+        LlamaCpp --> ActiveModel
+        LMStudio --> ActiveModel
+        ActiveModel -.-> Qwen9
+        ActiveModel -.-> Qwen4
+        ActiveModel -.-> Gemma
+        Ollama --> OllamaStore
+        MLXLM --> HFCache
+        MLXVLM --> HFCache
+        LlamaCpp --> GGUFStore
 
         Setup --> Config
         Config --> WebUI
-        Config --> Ollama
+        Config --> ActiveEntry
         Setup --> Evals
     end
 
@@ -215,47 +243,58 @@ flowchart TB
     SearXNG -.->|"Online modes only"| Internet
 ```
 
-The solid lines show the MVP path through native Ollama. All three model nodes
-are approved for their labeled roles: Qwen 9B is the chat default, Qwen 4B is
-the fast default, and Gemma 12B is the coding and vision default. Only Gemma is
-advertised for image input because the Qwen artifacts failed the fixed OCR
-qualification. Dotted lines denote optional services, later-phase direct
-MLX-VLM access, or network access. Ollama owns model installation, storage,
-loading, unloading, backend selection, inference, and the local API. Agent Lab
-does not place a custom gateway or supervisor in front of it.
+Solid lines show client traffic through the **active backend** entry. MVP
+history used Ollama alone on port `11434`; post-MVP the same clients follow
+`AGENT_LAB_INFERENCE_BACKEND` and its OpenAI-compatible base URL. Role aliases
+`qwen-9b`, `qwen-4b`, and `gemma-12b` remain; only Gemma is advertised for
+image input on backends that passed vision gates. Dotted lines denote optional
+services, an optional second Open WebUI vision connection, or network access.
 
-When direct Hugging Face access is added later, Open WebUI may expose Ollama and
-MLX-VLM as two separate model connections. LLM CLI and Aider select the desired
-endpoint explicitly. This avoids introducing a gateway merely to combine two
-already compatible APIs.
+Each backend owns its own install, storage, load/unload, and local API. Agent
+Lab does not place a custom gateway or supervisor in front of them. Open WebUI
+may optionally expose a second connection for a vision split (for example
+mlx-lm text + mlx-vlm vision). LLM CLI and Aider target the active `/v1`
+endpoint unless the operator selects another explicitly.
 
 ## Deployment
 
 ### Native macOS processes
 
-Ollama runs outside containers so its native inference backends can use Apple
-Silicon acceleration directly. The qualified artifact determines the backend
-Ollama uses; the design does not require an MLX-only Ollama path. Ollama exposes
-its local API on loopback port `11434`; no authentication is needed on that
-local endpoint. Open WebUI uses Ollama's native API or its OpenAI-compatible
-`/v1` API, while LLM CLI and Aider use the OpenAI-compatible API.
+Inference servers run outside containers so Apple Silicon acceleration is
+available directly. The MVP ran only native Ollama on loopback port `11434`.
+Post-MVP (decision 0011), operators select one **active** backend among
+`ollama`, `mlx_lm`, `mlx_vlm`, `lm_studio`, and `llama_cpp`. Suggested ports:
 
-The MVP configuration sets `OLLAMA_MAX_LOADED_MODELS=1` to protect the 24 GB
-unified-memory budget and `OLLAMA_NO_CLOUD=1` to disable cloud models and
-Ollama-provided web search. Model retention is tuned with
-`OLLAMA_KEEP_ALIVE` only after switch-time and memory measurements. The server
-remains bound to loopback unless a later requirement explicitly authorizes LAN
-access.
+| Backend | Loopback port |
+| --- | --- |
+| `ollama` | `11434` |
+| `mlx_lm` | `11435` |
+| `mlx_vlm` | `11436` |
+| `llama_cpp` | `11437` |
+| `lm_studio` | `1234` (LM Studio default) or detected |
 
-Direct MLX-VLM is a later native service with its own pinned Python environment
-and Hugging Face cache. It is not installed or started in the MVP.
+Clients prefer the OpenAI-compatible `/v1` API on the active base URL. Open
+WebUI may use Ollama’s native API only when the active backend is `ollama`.
+No authentication is required on loopback; clients that demand a non-empty key
+may use a non-secret placeholder.
+
+When Ollama is active, configuration keeps `OLLAMA_MAX_LOADED_MODELS=1` and
+`OLLAMA_NO_CLOUD=1`. Model retention uses `OLLAMA_KEEP_ALIVE` only after
+switch-time and memory measurements. All inference listeners remain on loopback
+unless a later requirement explicitly authorizes LAN access.
+
+On 24 GB hosts, run at most one heavy inference server with a large model
+loaded. Switching backends means stopping or unloading the previous server
+before starting the next. MLX and llama.cpp processes use their own pinned
+environments and weight caches; they are not started by the MVP freeze path.
 
 ### Containers
 
 Open WebUI runs from a pinned upstream container image with a persistent local
 data volume. The container reaches the native inference endpoint through
-`host.docker.internal`. Optional SearXNG and Docling services join the same
-container configuration only after their need has been demonstrated.
+`host.docker.internal` (MVP: Ollama; post-MVP: the active backend’s host port).
+Optional SearXNG and Docling services join the same container configuration only
+after their need has been demonstrated.
 
 The container runtime is a deployment dependency, not Agent Lab code. Docker
 Desktop may be used on macOS; an alternative compatible runtime can be
@@ -267,18 +306,21 @@ evaluated separately if licensing or resource usage becomes a concern.
 
 Open WebUI owns the ChatGPT-style browser experience, users, conversation
 history, file uploads, model presentation, tool presentation, RAG, citations,
-and web search. Agent Lab configures its connection to the local inference
-endpoint but does not modify or fork the UI. Ollama is the only inference
-connection required in the MVP; MLX-VLM appears as a second connection only in
-the later Hugging Face compatibility phase.
+and web search. Agent Lab configures its connection to the active local
+inference endpoint but does not modify or fork the UI. For the MVP freeze,
+Ollama was the only inference connection. Post-MVP, Open WebUI follows the
+active backend’s OpenAI-compatible URL; an Ollama-native connection is used only
+when that backend is `ollama`. An optional second Open WebUI connection may
+expose a vision-split backend (for example `mlx_vlm`) without a custom gateway.
 
 ### General CLI
 
 LLM CLI provides one-shot and interactive terminal conversations, model
 selection, image attachments, tools, and its own local history. It connects
-directly to Ollama's OpenAI-compatible endpoint. Open WebUI exposes an API, but
-LLM CLI is not assumed to understand Open WebUI-specific knowledge collection,
-tool ID, or conversation-record extensions.
+directly to the active backend’s OpenAI-compatible endpoint (MVP: Ollama
+`/v1`). Open WebUI exposes an API, but LLM CLI is not assumed to understand
+Open WebUI-specific knowledge collection, tool ID, or conversation-record
+extensions.
 
 Shared RAG configuration and synchronized web/CLI conversation history are not
 MVP requirements. If either becomes important, Agent Lab may add a small
@@ -301,9 +343,10 @@ rendering implementation.
 ### Coding
 
 Aider owns the repository map, prompt construction, edit formats, diffs, Git
-integration, and coding loop. It connects to Ollama's local OpenAI-compatible
-endpoint in the MVP. Agent Lab supplies tested model settings and compatibility
-configuration but does not create a competing coding agent.
+integration, and coding loop. It connects to the active backend’s local
+OpenAI-compatible endpoint (MVP: Ollama). Agent Lab supplies tested model
+settings and compatibility configuration but does not create a competing coding
+agent.
 
 ## Model lifecycle
 
@@ -327,9 +370,14 @@ request.
 
 Agent Lab tests memory release, failed loads, concurrent requests, streaming
 interruption, crash recovery, and digest reproducibility. It does not implement
-a competing model manager. MLX-VLM and Hugging Face are added later only to
-expand model compatibility, not to replace Ollama lifecycle management for
-models Ollama already serves well.
+a competing model manager.
+
+Post-MVP (P10), each backend keeps its own artifact store and load/unload
+behavior. Agent Lab catalogs per-backend pins for the same role aliases, selects
+one active server, and enforces the single-heavy-server policy. MLX, llama.cpp,
+and LM Studio expand compatibility and measurement; they do not replace Ollama’s
+lifecycle for artifacts Ollama already serves when that backend is active.
+Rejected Ollama `*-mlx` tags are not revived.
 
 ## Retrieval-augmented generation
 
@@ -365,9 +413,10 @@ Agent Lab does not implement a search broker or web-page fetcher.
 Agent Lab defines three configuration profiles:
 
 - **Offline:** Web search and Ollama cloud features are disabled, remote tools
-  are unavailable, model pulls are prohibited, and outbound connections are
-  blocked or verified at the operating-system boundary. In the later direct
-  MLX-VLM phase, Hugging Face libraries are also forced into offline behavior.
+  are unavailable, model and weight pulls are prohibited, and outbound
+  connections are blocked or verified at the operating-system boundary. When
+  MLX or Hugging Face paths are installed, those libraries are also forced into
+  offline behavior.
 - **Online/manual:** Search is available but must be explicitly enabled for the
   request. This is the default online profile.
 - **Online/automatic:** Open WebUI may expose search tools for the model to call
@@ -414,18 +463,40 @@ remote tools. Configuration alone is not considered proof: a strict test using
 LuLu, macOS `pf`, or an equivalent network boundary must confirm that normal
 offline workflows make no outbound connections.
 
-## Explicit non-goals for the initial implementation
+## Explicit non-goals
+
+### Always out of scope (unless design and plan are revised)
 
 - A custom ChatGPT-style web application
 - A custom inference engine or MLX model implementation
-- A custom OpenAI-compatible gateway
-- A custom model supervisor or process manager
+- A custom OpenAI-compatible gateway that silently multiplexes backends
 - A custom RAG framework, vector database, or reranker
 - A custom document parser or OCR engine
 - A custom search engine, search broker, or page crawler
 - A replacement for LLM CLI or Aider
 - Multi-user enterprise deployment, clustering, or horizontal scaling
 - Training or fine-tuning foundation models
+
+### MVP-only constraints (historical `v0.1.0-rc.1`)
+
+- Sole inference entry: native Ollama
+- No concurrent operation of MLX, llama.cpp, or LM Studio servers as Agent Lab
+  backends
+- No per-backend Hugging Face / GGUF pin matrix
+
+### Post-MVP multi-entry (P10+, decision 0011)
+
+These are **in scope** after the MVP freeze and are not non-goals:
+
+- First-class backends `ollama`, `mlx_lm`, `mlx_vlm`, `lm_studio`, `llama_cpp`
+- Active-backend selection via `AGENT_LAB_INFERENCE_BACKEND` and OpenAI `/v1`
+- Optional second Open WebUI connection for vision split
+- Single-heavy-server policy on 24 GB hosts
+- Comparative multi-backend benchmarks
+
+Still forbidden after P10: a custom multiplexing gateway or supervisor. A
+process manager that only starts/stops/detects documented third-party servers
+is allowed as integration glue, not as a new inference API.
 
 These boundaries can change only when a measured requirement cannot be met by
 configuration, a small adapter, or a maintained third-party component.

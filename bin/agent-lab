@@ -17,10 +17,13 @@ Commands:
   stop               Stop the managed Agent Lab stack
   status             Show component and profile status
   health             Run local health checks
+  backend            List, status, start, stop, or use inference backends
+  apply-inference    Rewire WebUI / LLM CLI / Aider to the active backend
   models             List, verify, or pull approved models
   backup             Back up non-reproducible local data
   restore            Restore a validated backup
-  benchmark          Run local model benchmarks
+  benchmark          Run local Ollama model benchmarks
+  benchmark-backends Run cross-backend comparative benchmarks
   offline verify     Verify core workflows without network access
   help               Show this help
 EOF
@@ -59,8 +62,11 @@ case "$command_name" in
     [[ $# -eq 0 ]] || fail_usage 'help accepts no arguments'
     usage
     ;;
-  doctor|setup|start|stop|status|health|models|backup|restore|benchmark)
+  doctor|setup|start|stop|status|health|backend|models|backup|restore|benchmark|benchmark-backends)
     dispatch "${REPO_ROOT}/scripts/${command_name}.sh" "$@"
+    ;;
+  apply-inference)
+    dispatch "${REPO_ROOT}/scripts/apply-inference.sh" "$@"
     ;;
   offline)
     [[ $# -gt 0 ]] || fail_usage 'offline requires the verify subcommand'

@@ -31,6 +31,7 @@ fi
 run tests/integration/test-rag.sh
 run tests/integration/test-backup-restore.sh
 run tests/integration/test-diagnostics.sh
+run tests/integration/test-backends.sh
 
 if [[ $fail -ne 0 ]]; then
   printf '%s\n' 'FAIL: one or more integration checks failed' >&2

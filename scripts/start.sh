@@ -4,6 +4,10 @@ set -euo pipefail
 readonly SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 # shellcheck source=lib/common.sh
 . "$SCRIPT_DIR/lib/common.sh"
+# shellcheck source=lib/backends.sh
+. "$SCRIPT_DIR/lib/backends.sh"
+# shellcheck source=lib/inference.sh
+. "$SCRIPT_DIR/lib/inference.sh"
 
 readonly REPO_ROOT="$(repository_root "$SCRIPT_DIR")"
 readonly COMPONENTS_FILE="$REPO_ROOT/config/components.json"
@@ -22,6 +26,9 @@ readonly ENV_FILE="$REPO_ROOT/.env"
 readonly COMPOSE_FILE="$REPO_ROOT/compose.yaml"
 readonly WEBUI_HEALTH_URL='http://127.0.0.1:3000/health'
 START_TEMPORARY=
+
+agent_lab_backends_init "$SCRIPT_DIR"
+agent_lab_inference_init "$SCRIPT_DIR"
 
 cleanup_start_temporary() {
     [ -z "$START_TEMPORARY" ] || rm -f -- "$START_TEMPORARY"
@@ -113,7 +120,12 @@ wait_for_managed_health() {
 }
 
 compose_command() {
-    docker compose --project-directory "$REPO_ROOT" --env-file "$ENV_FILE" -f "$COMPOSE_FILE" "$@"
+    local env_args=()
+    env_args+=(--env-file "$ENV_FILE")
+    if [[ -r "$AGENT_LAB_INFERENCE_ENV_FILE" ]]; then
+        env_args+=(--env-file "$AGENT_LAB_INFERENCE_ENV_FILE")
+    fi
+    docker compose --project-directory "$REPO_ROOT" "${env_args[@]}" -f "$COMPOSE_FILE" "$@"
 }
 
 wait_for_webui_health() {
@@ -172,9 +184,16 @@ require_command shasum
 require_command docker
 require_pinned_ollama
 
+# Single-heavy-server: stop managed mlx_*/llama_cpp peers before Ollama stack.
+agent_lab_backend_stop_managed_peers ollama
+
 [[ -r "$ENV_FILE" ]] ||
     die "private environment file is missing; run 'agent-lab setup' first" || exit 1
 docker info >/dev/null 2>&1 || die 'Docker engine is stopped or unavailable' || exit 1
+
+# Ensure Compose sees an inference.env for the active backend (default ollama).
+agent_lab_inference_ensure_default_env
+agent_lab_inference_apply "$(agent_lab_backend_active)" true
 
 if [ "$install_requested" = true ]; then
     if ! service_is_loaded && ! port_is_available "$OLLAMA_PORT" "$OLLAMA_HOST"; then
@@ -213,4 +232,6 @@ fi
 
 compose_command up --detach --no-build open-webui
 wait_for_webui_health
+# Persist provider routing in the WebUI DB (env alone does not overwrite rows).
+agent_lab_inference_apply "$(agent_lab_backend_active)" false
 info 'Open WebUI is ready at http://127.0.0.1:3000'

@@ -43,6 +43,13 @@ else
     (.models[] | line((.state == "verified"); "model " + .alias; .state; .action)),
     line(.disk.ok; "free disk"; ((.disk.free_bytes|tostring) + " bytes"); .disk.action),
     line(.environment.exists; "private environment"; (if .environment.exists then "present" else "missing" end); .environment.action),
+    ((.backends.backends // [])[] |
+      (if .state == "running" then
+        line(true; "backend " + .id; "running readiness=" + .readiness; "none")
+      else
+        "INFO  backend " + .id + ": " + .state + " readiness=" + .readiness +
+        (if .note != "" then " (" + .note + ")" else "" end)
+      end)),
     "SUMMARY healthy=" + (.healthy|tostring)
   ' <<<"$report"
 fi

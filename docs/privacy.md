@@ -16,14 +16,17 @@ In normal operation these stay on this Mac:
 | --- | --- |
 | Prompts, chats, uploads, vectors, Open WebUI settings | Docker volume `agent-lab-open-webui-data` |
 | Approved model weights and manifests | `~/.ollama/models` |
+| Optional MLX / HF weights | `~/.cache/huggingface` (or `$HF_HOME`) |
+| Active backend + inference env | `~/.agent-lab/state/` |
 | Admin password and `WEBUI_SECRET_KEY` | ignored repository `.env` (mode `0600`) |
 | LLM CLI history (if enabled) | ignored `.agent-lab/llm/` |
 | Aider conversation history | ignored per-repo `.agent-lab/aider/` |
-| Inference | native Ollama on `127.0.0.1:11434` only |
+| Inference | Active loopback backend (default Ollama `127.0.0.1:11434`; optional mlx / LM Studio / llama.cpp per [decision 0011](decisions/0011-inference-backends.md)) |
 
 Ollama is loopback-only with cloud integration disabled
-(`OLLAMA_NO_CLOUD=1`). Open WebUI publishes only on `127.0.0.1:3000`. No hosted
-model provider is configured in the MVP catalogs or Compose file.
+(`OLLAMA_NO_CLOUD=1`). Optional backends also bind IPv4 loopback only. Open
+WebUI publishes only on `127.0.0.1:3000`. No hosted model provider is configured
+in the catalogs or Compose file.
 
 Treat the Mac login session, disk encryption, and backup destinations as part
 of the trust boundary. Anyone who can read `.env` or a backup archive can
@@ -36,6 +39,8 @@ Outbound contact is intentional and limited:
 | Activity | When | What can leave |
 | --- | --- | --- |
 | Homebrew / Docker / Ollama pulls | Explicit online install or maintenance | Package and model bytes from registries |
+| Hugging Face Hub (MLX weights) | Explicit online install or weight refresh | Model bytes + Hub metadata for pinned revisions |
+| LM Studio registry / catalog | Explicit app install or in-app download | Model bytes via LM Studio (outside Agent Lab) |
 | Embedding-cache first populate | Online until the pinned snapshot exists | Hugging Face / container fetch of the pinned revision |
 | DuckDuckGo search + page fetch | `online-manual` (user chooses search) or `online-automatic` (model may call search) | Query text, result URLs, fetched page content |
 | Version / telemetry | Disabled in every Agent Lab profile | Nothing by design (`ENABLE_VERSION_UPDATE_CHECK=false`, analytics flags off) |
@@ -47,6 +52,23 @@ knowledge.
 
 Remote tools stay disabled (`AGENT_LAB_ALLOW_REMOTE_TOOLS=false`) in all three
 profiles.
+
+## Multi-backend weights and downloads
+
+After P10, operators may keep **duplicate** weight copies (Ollama store + HF/MLX
+cache + optional LM Studio / GGUF). That disk cost is expected; Agent Lab does
+not share a single weight manager across backends.
+
+| Concern | Guidance |
+| --- | --- |
+| When HF Hub is contacted | Only during explicit online install or weight download for pinned revisions (decision 0012). |
+| Offline MLX serve | Managed wrappers set `HF_HUB_OFFLINE=1` / `TRANSFORMERS_OFFLINE=1`. Missing local snapshots fail closed — no pull mid-chat. |
+| LM Studio | Downloads happen inside the LM Studio app/registry, not via Agent Lab. Runtime use is loopback detect-only (`127.0.0.1:1234` typical). |
+| llama.cpp | Local GGUF only when present; no Hub pull helper in Agent Lab yet (`config/llama.cpp/README.md`). |
+| Switching backends | Changes which local server answers; it does not authorize new outbound model providers. |
+
+P10 does **not** re-run LuLu / `pf` boundary proofs. MVP offline evidence in
+decision 0010 remains authoritative for zero-egress claims.
 
 ## Profile semantics
 
@@ -97,9 +119,9 @@ public endpoints and makes no zero-egress claim.
 
 | Question | Answer |
 | --- | --- |
-| What runs locally? | Ollama + Open WebUI (+ optional LLM CLI / Aider clients) |
-| Where does private data go? | WebUI volume, `.env`, optional CLI/Aider trees; weights under `~/.ollama` |
-| When does networking occur? | Install/maintenance pulls; optional DuckDuckGo in online profiles |
+| What runs locally? | Active inference backend (default Ollama) + Open WebUI (+ optional LLM CLI / Aider; optional mlx / LM Studio / llama.cpp) |
+| Where does private data go? | WebUI volume, `.env`, optional CLI/Aider trees; weights under `~/.ollama` and optionally `~/.cache/huggingface` / LM Studio / GGUF paths |
+| When does networking occur? | Install/maintenance pulls (Ollama, HF, LM Studio app); optional DuckDuckGo in online profiles |
 | How do I prove offline behavior? | Warm caches, apply host boundary, run `--boundary-confirmed --full` |
 | How do I recover data? | [recovery](recovery.md) backup/restore drill |
 

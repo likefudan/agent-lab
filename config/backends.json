@@ -1,0 +1,78 @@
+{
+  "schema_version": 1,
+  "decision": "docs/decisions/0011-inference-backends.md",
+  "default_backend": "ollama",
+  "backends": [
+    {
+      "id": "ollama",
+      "name": "Ollama",
+      "lifecycle": "managed",
+      "port": 11434,
+      "bind": "127.0.0.1:11434",
+      "openai_base_url": "http://127.0.0.1:11434/v1",
+      "openai_base_url_template": "http://127.0.0.1:{port}/v1",
+      "health": {
+        "path": "/api/version",
+        "url": "http://127.0.0.1:11434/api/version"
+      },
+      "native_api": "http://127.0.0.1:11434/api",
+      "notes": "MVP freeze inference entry; LaunchAgent-managed. Native API allowed only when this backend is active. OpenAI /v1 also available."
+    },
+    {
+      "id": "mlx_lm",
+      "name": "mlx-lm server",
+      "lifecycle": "managed",
+      "port": 11435,
+      "bind": "127.0.0.1:11435",
+      "openai_base_url": "http://127.0.0.1:11435/v1",
+      "openai_base_url_template": "http://127.0.0.1:{port}/v1",
+      "health": {
+        "path": "/v1/models",
+        "url": "http://127.0.0.1:11435/v1/models"
+      },
+      "notes": "Apple MLX text/coding server via Hugging Face / MLX-community weights. Pair with mlx_vlm when vision is required. Managed venv/launch in P10-T04."
+    },
+    {
+      "id": "mlx_vlm",
+      "name": "MLX-VLM server",
+      "lifecycle": "managed",
+      "port": 11436,
+      "bind": "127.0.0.1:11436",
+      "openai_base_url": "http://127.0.0.1:11436/v1",
+      "openai_base_url_template": "http://127.0.0.1:{port}/v1",
+      "health": {
+        "path": "/v1/models",
+        "url": "http://127.0.0.1:11436/v1/models"
+      },
+      "notes": "Apple MLX vision/multimodal OpenAI-compatible server. Optional second Open WebUI connection for vision split (no custom gateway)."
+    },
+    {
+      "id": "lm_studio",
+      "name": "LM Studio",
+      "lifecycle": "detect",
+      "port": 1234,
+      "bind": "127.0.0.1:1234",
+      "openai_base_url": "http://127.0.0.1:1234/v1",
+      "openai_base_url_template": "http://127.0.0.1:{port}/v1",
+      "health": {
+        "path": "/v1/models",
+        "url": "http://127.0.0.1:1234/v1/models"
+      },
+      "notes": "Detect-first optional peer. Default app port is 1234; operators may use a detected port. Manage only if a safe documented start path exists (P10-T04)."
+    },
+    {
+      "id": "llama_cpp",
+      "name": "llama.cpp server",
+      "lifecycle": "managed",
+      "port": 11437,
+      "bind": "127.0.0.1:11437",
+      "openai_base_url": "http://127.0.0.1:11437/v1",
+      "openai_base_url_template": "http://127.0.0.1:{port}/v1",
+      "health": {
+        "path": "/v1/models",
+        "url": "http://127.0.0.1:11437/v1/models"
+      },
+      "notes": "GGUF / Metal benchmark and fallback path. Separate artifact lifecycle from the Ollama store. Managed where Agent Lab owns the process."
+    }
+  ]
+}

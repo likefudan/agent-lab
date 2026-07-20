@@ -45,6 +45,10 @@ docker compose \
   fail 'Open WebUI data volume is not mounted at the documented data directory'
 [[ $(jq -r '.services["open-webui"].environment.OLLAMA_BASE_URL' "$rendered") == 'http://host.docker.internal:11434' ]] ||
   fail 'Open WebUI does not use the Docker-to-host Ollama endpoint'
+[[ $(jq -r '.services["open-webui"].environment.ENABLE_OLLAMA_API' "$rendered") == 'true' ]] ||
+  fail 'Open WebUI Ollama API must default to enabled (ollama active backend)'
+[[ $(jq -r '.services["open-webui"].environment.ENABLE_OPENAI_API' "$rendered") == 'false' ]] ||
+  fail 'Open WebUI OpenAI API must default to disabled (no silent hosted/Ollama fallthrough)'
 approved_models=$(jq -c '.services["open-webui"].environment.OLLAMA_API_CONFIGS | fromjson | .["0"].model_ids' "$rendered")
 [[ $approved_models == '["qwen3.5:4b","qwen3.5:9b","gemma4:12b"]' ]] ||
   fail 'Open WebUI model presentation is not restricted to approved artifacts'

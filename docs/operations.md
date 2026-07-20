@@ -12,13 +12,16 @@ see [recovery](recovery.md).
 
 | Process | Bind | Owner |
 | --- | --- | --- |
-| Ollama `0.32.1` | `127.0.0.1:11434` | Agent Lab LaunchAgent `ai.agent-lab.ollama` |
+| Ollama `0.32.1` (default active backend) | `127.0.0.1:11434` | Agent Lab LaunchAgent `ai.agent-lab.ollama` |
+| Optional `mlx_lm` / `mlx_vlm` / `llama_cpp` | `11435` / `11436` / `11437` | `agent-lab backend start` when installed |
+| Optional LM Studio local server | `127.0.0.1:1234` (typical) | LM Studio app (detect-only) |
 | Open WebUI `0.10.2` | `127.0.0.1:3000` → container `:8080` | Docker Compose project `agent-lab` |
-| LLM CLI / Aider | client only | Optional host tools talking to Ollama `/v1` |
+| LLM CLI / Aider | client only | Optional host tools talking to the **active** `/v1` |
 
-Inference stays on the host. Open WebUI reaches Ollama through
-`host.docker.internal:11434`. No remote model endpoint is configured in the
-MVP.
+Inference stays on the host loopback. Open WebUI reaches the active backend
+through Compose / provider wiring (`apply-inference`). No custom gateway
+multiplexes backends. Ports and contract:
+[decision 0011](decisions/0011-inference-backends.md).
 
 ## Data locations
 
@@ -28,6 +31,10 @@ MVP.
 | Private Compose secrets and admin password | repository `.env` (mode `0600`) | No | Yes |
 | Selected profile name | `.agent-lab/profile` | No | With config extract |
 | Ollama weights and manifests | `~/.ollama/models` | No | No (reproducible from catalog) |
+| Hugging Face / MLX weight cache | `~/.cache/huggingface` (or `$HF_HOME`) | No | No |
+| Active backend marker + inference env | `~/.agent-lab/state/active-backend`, `inference.env` | No | No |
+| Managed mlx / llama.cpp PID + logs | `~/.agent-lab/run/`, `~/.agent-lab/logs/` | No | No |
+| MLX Python venv | `.agent-lab/venvs/mlx` | No | No |
 | Ollama LaunchAgent logs | `~/.agent-lab/logs/` | No | No |
 | Open WebUI chats, settings, uploads, Chroma | Docker volume `agent-lab-open-webui-data` | No | Yes |
 | Embedding model cache | inside that volume under `/app/backend/data/cache/...` | No | Yes (with volume) |
@@ -74,26 +81,76 @@ WebUI's SQLite database to change modes.
 A valid offline **profile file** is not proof of zero egress. See
 [privacy](privacy.md#strict-offline-verification).
 
+## Inference backends
+
+Ollama is no longer the sole inference entry. One **active backend** is the
+day-to-day client target for Open WebUI, LLM CLI, and Aider.
+
+| Backend | Port | OpenAI `/v1` | Lifecycle |
+| --- | ---: | --- | --- |
+| `ollama` | `11434` | `http://127.0.0.1:11434/v1` | Managed LaunchAgent |
+| `mlx_lm` | `11435` | `http://127.0.0.1:11435/v1` | Managed venv + wrappers under `config/mlx/` |
+| `mlx_vlm` | `11436` | `http://127.0.0.1:11436/v1` | Managed (vision / multimodal) |
+| `llama_cpp` | `11437` | `http://127.0.0.1:11437/v1` | Optional when binary + GGUF exist |
+| `lm_studio` | `1234` (typical) | `http://127.0.0.1:1234/v1` | Detect-only |
+
+```sh
+bin/agent-lab backend list
+bin/agent-lab backend status
+bin/agent-lab backend status --json
+bin/agent-lab backend start mlx_lm --model-alias qwen-4b
+bin/agent-lab backend stop mlx_lm
+bin/agent-lab backend use ollama          # record + apply-inference
+bin/agent-lab apply-inference             # rewire clients without changing id
+bin/agent-lab benchmark-backends --dry-run
+bin/agent-lab benchmark-backends --smoke --backends ollama --aliases qwen-4b
+```
+
+`backend use` writes `~/.agent-lab/state/active-backend` and runs
+`apply-inference` (Compose env, `.agent-lab/llm/`, `.agent-lab/aider/`, Open
+WebUI providers when healthy). Non-Ollama actives use OpenAI `/v1` only — no
+silent Ollama fallthrough. Starting a managed mlx_*/llama_cpp peer stops other
+managed heavy peers by default (24 GiB single-heavy-server guidance); pass
+`--keep-others` only when you accept the memory risk.
+
+**Vision split:** text on `mlx_lm` (`:11435`) and vision on `mlx_vlm`
+(`:11436`) without a custom gateway. `backend use` wires one active connection;
+add a second OpenAI connection in the Open WebUI admin UI to the other loopback
+`/v1` if you need both. Details: `config/inference/README.md`.
+
+**Recovery:** if clients misbehave after a switch, `bin/agent-lab backend use
+ollama` restores the shipped default, then `bin/agent-lab health`. Regression:
+`tests/integration/test-backends.sh` (skips absent optionals; does not touch
+firewalls).
+
+Install notes and duplicate disk cost:
+[installation — optional inference backends](installation.md#optional-inference-backends-post-mvp).
+Privacy for HF / LM Studio downloads:
+[privacy — multi-backend weights](privacy.md#multi-backend-weights-and-downloads).
+
 ## Resource limits and model switching
 
-- `OLLAMA_MAX_LOADED_MODELS=1` is mandatory. Only one large model may reside at
-  a time.
+- `OLLAMA_MAX_LOADED_MODELS=1` is mandatory when Ollama is the active path. Only
+  one large model may reside at a time on 24 GiB hosts across backends as well:
+  do not run Ollama + mlx + LM Studio heavy loads together.
 - Prefer serial requests. Concurrent chat, Aider, and WebUI traffic against
   different models forces unload/load cycles.
 - Defaults: chat `qwen-9b`, fast `qwen-4b`, coding/vision `gemma-12b`.
-- Only `gemma-12b` is advertised for image input.
+- Only `gemma-12b` is advertised for image input (Ollama or `mlx_vlm`).
 - Hardware qualification recommends `OLLAMA_KEEP_ALIVE=5m` on the 24 GB host.
   Changing keep-alive is a deliberate LaunchAgent edit followed by memory
   re-checks (`bin/agent-lab benchmark` or `memory_pressure`).
 - Under memory pressure, finish or cancel active generation, stop unrelated
-  apps, or `bin/agent-lab stop` / `start` and continue on `qwen-4b`. Do not
-  raise the loaded-model limit or add a second inference server.
+  apps or optional backends (`bin/agent-lab backend stop …`), or
+  `bin/agent-lab stop` / `start` and continue on `qwen-4b`. Do not raise the
+  loaded-model limit or invent a multiplexed gateway.
 
 Inspect residency:
 
 ```sh
 curl --fail --silent http://127.0.0.1:11434/api/ps | jq .
 bin/agent-lab status --json | jq '.ollama.active_models'
+bin/agent-lab backend status
 ```
 
 ## Updates and digest drift
@@ -124,9 +181,12 @@ repeat the relevant qualification probes.
 | Source | Path / command |
 | --- | --- |
 | Ollama stdout/stderr | `~/.agent-lab/logs/ollama.stdout.log`, `ollama.stderr.log` |
+| Managed mlx / llama.cpp | `~/.agent-lab/logs/mlx_lm.*.log`, `mlx_vlm.*.log`, `llama_cpp.*.log` |
 | Open WebUI container | `docker compose --env-file .env -f compose.yaml logs --tail 100 open-webui` |
 | Status / health JSON | `bin/agent-lab status --json` |
+| Backend status JSON | `bin/agent-lab backend status --json` |
 | Offline verification | `.agent-lab/results/offline-latest.json` |
+| Multi-backend benchmarks | `.agent-lab/results/benchmark-backends-*.json` |
 | Benchmarks / suites | `.agent-lab/results/` |
 
 Container logging is capped (`max-size` 10m, `max-file` 3) in `compose.yaml`.
@@ -169,7 +229,10 @@ OCR is not included; see [Decision 0008](decisions/0008-document-extraction.md).
   other host firewall rules can block Docker egress even when the profile
   allows search.
 - SearXNG and Docling are deferred; do not add them during incident response.
-- Direct MLX-VLM / Hugging Face inference is out of MVP scope.
+- Optional backends (`mlx_lm`, `mlx_vlm`, `lm_studio`, `llama_cpp`) require
+  separate install/detect steps; `llama_cpp` / LM Studio model slots may still
+  be `candidate` until digests exist (decision 0012).
+- Comparative default changes wait on P10-T08 / decision 0013.
 - Configuration alone is not a physical firewall.
 
 ## Incident triage and command safety

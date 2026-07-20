@@ -4,6 +4,8 @@ set -euo pipefail
 readonly SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 # shellcheck source=lib/common.sh
 . "$SCRIPT_DIR/lib/common.sh"
+# shellcheck source=lib/backends.sh
+. "$SCRIPT_DIR/lib/backends.sh"
 
 readonly REPO_ROOT="$(repository_root "$SCRIPT_DIR")"
 readonly PLIST_TEMPLATE="$REPO_ROOT/config/ollama/ai.agent-lab.ollama.plist.template"
@@ -14,12 +16,15 @@ readonly INSTALLED_PLIST="$HOME/Library/LaunchAgents/$LAUNCH_LABEL.plist"
 readonly ENV_FILE="$REPO_ROOT/.env"
 readonly COMPOSE_FILE="$REPO_ROOT/compose.yaml"
 
+agent_lab_backends_init "$SCRIPT_DIR"
+
 usage() {
     cat <<'EOF'
 Usage: agent-lab stop
 
-Stop the Ollama instance owned by the matching Agent Lab launch agent. The
-launch-agent file remains installed so the service persists across login/reboot.
+Stop the Ollama instance owned by the matching Agent Lab launch agent and the
+Open WebUI container. Managed mlx_lm / mlx_vlm / llama_cpp peers are left
+running; stop them with `agent-lab backend stop <id>` if needed.
 EOF
 }
 
@@ -75,3 +80,11 @@ fi
 
 launchctl bootout "$LAUNCH_SERVICE"
 info 'stopped the Agent Lab-managed Ollama launch agent'
+
+# Informational only: do not stop optional backends from MVP stop.
+for peer in mlx_lm mlx_vlm llama_cpp; do
+  state=$(agent_lab_backend_probe "$peer" 2>/dev/null || printf 'unknown')
+  if [[ "$state" == running ]]; then
+    warn "backend $peer is still running; use 'agent-lab backend stop $peer' if unloading is desired"
+  fi
+done

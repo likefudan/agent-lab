@@ -90,8 +90,8 @@ Raw Promptfoo JSON lands under ignored `.agent-lab/results/`.
 
 ## Hardware benchmark
 
-`bin/agent-lab benchmark` dispatches `scripts/benchmark.sh`. Results are written
-under ignored `.agent-lab/results/` and must not be committed.
+`bin/agent-lab benchmark` dispatches `scripts/benchmark.sh` (Ollama MVP). Results
+are written under ignored `.agent-lab/results/` and must not be committed.
 
 ```sh
 # Schema-valid stub without inference
@@ -112,3 +112,31 @@ ambient memory pressure, prompt/input size, output token budget, cold load,
 TTFT, tokens/sec, peak Ollama RSS, system free-memory percent, switch time,
 failure rate, and a sustained-run proxy for thermal throttling. Keep-alive and
 default chat recommendations are emitted for the 24 GB Apple Silicon target.
+
+## Multi-backend benchmark (P10)
+
+`bin/agent-lab benchmark-backends` dispatches `scripts/benchmark-backends.sh`.
+It builds a matrix of ready/startable backends × executable alias pins × fixed
+prompts (thinking/tools off), serializes heavy servers, unloads between runs,
+and writes comparable JSON plus a short markdown summary. Gemma vision is a
+separate cell on vision-capable backends (`ollama`, `mlx_vlm`, …).
+
+```sh
+# Schema-valid stub (planned matrix; no inference)
+bin/agent-lab benchmark-backends --dry-run
+
+# Tiny live sample against one ready backend (keeps runtime short)
+bin/agent-lab benchmark-backends --smoke --backends ollama --aliases qwen-4b
+
+# Full comparative matrix (quiet host; one heavy server at a time — P10-T08)
+bin/agent-lab benchmark-backends --runs 3 \
+  --output .agent-lab/results/benchmark-backends-latest.json
+
+# Refuse compare when digests/revisions (or matrix membership) differ
+bin/agent-lab benchmark-backends --dry-run \
+  --compare .agent-lab/results/benchmark-backends-latest.json
+```
+
+Default outputs: `.agent-lab/results/benchmark-backends-<timestamp>.json` and a
+sibling `.md` summary. Do not commit results. Full campaign recording belongs in
+decision `0013` (P10-T08), not in this harness task.

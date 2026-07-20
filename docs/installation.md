@@ -419,6 +419,68 @@ captured output as well as the resulting Git diff and tests.
 tests/smoke/test-aider.sh
 ```
 
+## Optional inference backends (post-MVP)
+
+MVP day-to-day inference remains Ollama on `127.0.0.1:11434`. After P10, Agent
+Lab can select other loopback OpenAI-compatible servers. Design and ports:
+[decision 0011](decisions/0011-inference-backends.md). Per-backend pins:
+[decision 0012](decisions/0012-backend-model-pins.md). Day-to-day commands:
+[operations — inference backends](operations.md#inference-backends).
+
+| Backend | Port | Install / detect | Weight store |
+| --- | ---: | --- | --- |
+| `ollama` (default) | `11434` | Homebrew + LaunchAgent (this guide) | `~/.ollama/models` |
+| `mlx_lm` | `11435` | Python venv `.agent-lab/venvs/mlx` + HF snapshot | `~/.cache/huggingface` |
+| `mlx_vlm` | `11436` | Same venv; vision/multimodal server | `~/.cache/huggingface` |
+| `lm_studio` | `1234` (or detected) | Install LM Studio app; Agent Lab detects only | LM Studio library |
+| `llama_cpp` | `11437` | Optional: `llama-server` on `PATH` + local GGUF | separate GGUF file |
+
+### MLX venv and Hugging Face cache
+
+On the qualification host the scratch venv already lives at
+`.agent-lab/venvs/mlx` (gitignored) with `mlx-lm` / `mlx-vlm` matching decision
+0012. To recreate on another Mac:
+
+```sh
+python3 -m venv .agent-lab/venvs/mlx
+.agent-lab/venvs/mlx/bin/pip install -U pip
+.agent-lab/venvs/mlx/bin/pip install 'mlx-lm==0.31.3'
+# mlx-vlm version: see decision 0012 (PyPI may lag; pin the verified release)
+```
+
+Download pinned MLX revisions **while online** into the HF cache (default
+`HF_HOME=~/.cache/huggingface`). Managed serve sets `HF_HUB_OFFLINE=1` so a
+missing snapshot fails closed locally. Approximate MLX sizes (4-bit) from
+decision 0012: Qwen 4B ~2.9 GiB, Qwen 9B ~5.6 GiB, Gemma 12B ~6.3 GiB — **in
+addition to** the Ollama blobs for the same role aliases.
+
+### LM Studio and llama.cpp gaps
+
+- **LM Studio:** install the app separately, enable its local server, then
+  `bin/agent-lab backend status lm_studio`. Agent Lab never launches the GUI.
+- **llama.cpp:** no Homebrew bottle or verified GGUF pin on the qualification
+  host yet. See `config/llama.cpp/README.md`. Status stays `missing` /
+  `candidate` until a binary and digest exist; do not invent digests.
+
+### Duplicate weight disk cost
+
+Ollama blobs, Hugging Face / MLX caches, LM Studio libraries, and llama.cpp
+GGUF files are **separate copies**. Budget roughly the sum of each backend you
+enable (often 15+ GiB beyond the Ollama-only install if you keep all three MLX
+pins plus Ollama).
+
+### First switch after install
+
+```sh
+bin/agent-lab backend list
+bin/agent-lab backend status
+bin/agent-lab backend use ollama          # shipped default
+# optional, after mlx venv + HF snapshots exist:
+bin/agent-lab backend start mlx_lm --model-alias qwen-4b
+bin/agent-lab backend use mlx_lm
+bin/agent-lab backend use ollama          # restore default when done
+```
+
 ## Configuration profiles (install-time summary)
 
 | Profile | Search | Model pulls | Typical use |

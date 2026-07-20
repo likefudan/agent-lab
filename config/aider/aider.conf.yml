@@ -1,4 +1,7 @@
-# Agent Lab's Aider seed talks only to Ollama's loopback OpenAI-compatible API.
+# Agent Lab's Aider seed talks to the active inference backend.
+# Default (backend=ollama): Ollama's loopback OpenAI-compatible /v1 API.
+# Non-Ollama backends: run `agent-lab backend use <id>` / `apply-inference`
+# and use .agent-lab/aider/aider.conf.yml (OpenAI /v1 only; no Ollama fallback).
 model: openai/gemma4:12b
 weak-model: openai/gemma4:12b
 openai-api-base: http://127.0.0.1:11434/v1

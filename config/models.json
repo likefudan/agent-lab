@@ -219,6 +219,43 @@
       "license": "Apache-2.0",
       "minimum_ollama_version": "0.17.1",
       "inference": {"temperature": 0, "context": 4096, "openai_max_tokens_minimum": 1024},
+      "backends": {
+        "ollama": {
+          "status": "executable",
+          "artifact_id": "qwen3.5:4b",
+          "digest": "sha256:2a654d98e6fba55d452b7043684e9b57a947e393bbffa62485a7aac05ee4eefd",
+          "revision": null,
+          "notes": "MVP freeze Ollama pin; parent entry holds blob metadata."
+        },
+        "mlx_lm": {
+          "status": "executable",
+          "artifact_id": "mlx-community/Qwen3.5-4B-MLX-4bit",
+          "digest": null,
+          "revision": "32f3e8ecf65426fc3306969496342d504bfa13f3",
+          "notes": "P10-T03 pin; 4-bit MLX. Text smoke pass with enable_thinking=false via mlx_lm.generate and mlx_lm.server :11435. Decision 0012."
+        },
+        "mlx_vlm": {
+          "status": "unsupported",
+          "artifact_id": null,
+          "digest": null,
+          "revision": null,
+          "notes": "Text/coding role uses mlx_lm; vision not advertised for this alias (decision 0003)."
+        },
+        "lm_studio": {
+          "status": "candidate",
+          "artifact_id": null,
+          "digest": null,
+          "revision": null,
+          "notes": "Gap: LM Studio absent on qualification host; no verified LM Studio id (decision 0012)."
+        },
+        "llama_cpp": {
+          "status": "candidate",
+          "artifact_id": null,
+          "digest": null,
+          "revision": null,
+          "notes": "Gap: llama.cpp not installed; no verified GGUF digest (decision 0012)."
+        }
+      },
       "qualification": {
         "text": "pass",
         "code_repair_native": "pass",
@@ -255,6 +292,43 @@
       "license": "Apache-2.0",
       "minimum_ollama_version": "0.17.1",
       "inference": {"temperature": 0, "context": 4096, "openai_max_tokens_minimum": 1024},
+      "backends": {
+        "ollama": {
+          "status": "executable",
+          "artifact_id": "qwen3.5:9b",
+          "digest": "sha256:6488c96fa5faab64bb65cbd30d4289e20e6130ef535a93ef9a49f42eda893ea7",
+          "revision": null,
+          "notes": "MVP freeze Ollama pin; parent entry holds blob metadata."
+        },
+        "mlx_lm": {
+          "status": "executable",
+          "artifact_id": "mlx-community/Qwen3.5-9B-MLX-4bit",
+          "digest": null,
+          "revision": "938d8919941c6e7efd3c7150eff7fe9d12afa631",
+          "notes": "P10-T03 pin; 4-bit MLX. Text smoke pass with enable_thinking=false via mlx_lm.generate (peak ~5.2 GiB). Server path proven on qwen-4b; 9B server not re-probed. Decision 0012."
+        },
+        "mlx_vlm": {
+          "status": "unsupported",
+          "artifact_id": null,
+          "digest": null,
+          "revision": null,
+          "notes": "Text/coding role uses mlx_lm; vision not advertised for this alias (decision 0003)."
+        },
+        "lm_studio": {
+          "status": "candidate",
+          "artifact_id": null,
+          "digest": null,
+          "revision": null,
+          "notes": "Gap: LM Studio absent on qualification host; no verified LM Studio id (decision 0012)."
+        },
+        "llama_cpp": {
+          "status": "candidate",
+          "artifact_id": null,
+          "digest": null,
+          "revision": null,
+          "notes": "Gap: llama.cpp not installed; no verified GGUF digest (decision 0012)."
+        }
+      },
       "qualification": {
         "text": "pass",
         "code_repair_openai": "pass",
@@ -291,6 +365,43 @@
       "license": "Apache-2.0",
       "minimum_ollama_version": "0.30.5",
       "inference": {"temperature": 0, "context": 4096, "openai_max_tokens_minimum": 1024},
+      "backends": {
+        "ollama": {
+          "status": "executable",
+          "artifact_id": "gemma4:12b",
+          "digest": "sha256:4eb23ef187e2c5462566d6a1d3bbbc2f1346d0b4327cbb66d58fffbcc9b2b05c",
+          "revision": null,
+          "notes": "MVP freeze Ollama pin; parent entry holds blob metadata."
+        },
+        "mlx_lm": {
+          "status": "unsupported",
+          "artifact_id": null,
+          "digest": null,
+          "revision": null,
+          "notes": "Vision/multimodal primary is mlx_vlm; mlx_lm Gemma4 loaders strip vision towers."
+        },
+        "mlx_vlm": {
+          "status": "executable",
+          "artifact_id": "mlx-community/gemma-4-12B-it-4bit",
+          "digest": null,
+          "revision": "73bcf09092aa277861d5a191b989b666f7f32e8f",
+          "notes": "P10-T03 pin; 4-bit gemma4_unified. Text + vision smoke pass via mlx_vlm.generate and mlx_vlm.server :11436 (requires mlx-vlm>=0.6.6). Decision 0012."
+        },
+        "lm_studio": {
+          "status": "candidate",
+          "artifact_id": null,
+          "digest": null,
+          "revision": null,
+          "notes": "Gap: LM Studio absent on qualification host; no verified LM Studio id (decision 0012)."
+        },
+        "llama_cpp": {
+          "status": "candidate",
+          "artifact_id": null,
+          "digest": null,
+          "revision": null,
+          "notes": "Gap: llama.cpp not installed; no verified GGUF digest (decision 0012)."
+        }
+      },
       "qualification": {
         "text": "pass",
         "code_repair_openai": "pass",
