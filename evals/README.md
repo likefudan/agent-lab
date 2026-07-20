@@ -140,3 +140,33 @@ bin/agent-lab benchmark-backends --dry-run \
 Default outputs: `.agent-lab/results/benchmark-backends-<timestamp>.json` and a
 sibling `.md` summary. Do not commit results. Full campaign recording belongs in
 decision `0013` (P10-T08), not in this harness task.
+
+## Path B debug (Open WebUI → Ollama)
+
+When browser chat feels slower than `benchmark`, use Path B: authenticated
+`POST /ollama/api/chat` through Open WebUI (same hop as the Ollama provider),
+with explicit `think` / `num_predict`. Default prompt is `世界杯是什么？`.
+
+```sh
+bin/agent-lab start
+bin/agent-lab debug-webui-chat
+bin/agent-lab debug-webui-chat --think on --compare-direct --runs 2
+bin/agent-lab debug-webui-chat --alias qwen-9b --prompt '用三句话解释世界杯'
+```
+
+Results: `.agent-lab/results/debug-webui-chat-<timestamp>.{json,md}` (gitignored).
+This is not the browser Advanced Params panel — if UI still diverges, inspect the
+live request body in DevTools.
+
+## Same-prompt backend compare
+
+Compare `ollama` / `mlx_lm` / `mlx_vlm` on one fixed question (default
+`世界杯是什么？`):
+
+```sh
+bin/agent-lab debug-backends-chat
+bin/agent-lab debug-backends-chat --backends ollama,mlx_lm --aliases qwen-4b --runs 2
+```
+
+MLX cells stop Ollama by default for fair 24 GiB memory; pass `--keep-ollama` to
+leave it running. Results: `.agent-lab/results/debug-backends-chat-<timestamp>.{json,md}`.

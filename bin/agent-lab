@@ -24,6 +24,8 @@ Commands:
   restore            Restore a validated backup
   benchmark          Run local Ollama model benchmarks
   benchmark-backends Run cross-backend comparative benchmarks
+  debug-webui-chat   Path B: chat via Open WebUI → Ollama (debug timing)
+  debug-backends-chat Same prompt across ollama / mlx_* backends
   offline verify     Verify core workflows without network access
   help               Show this help
 EOF
@@ -64,6 +66,12 @@ case "$command_name" in
     ;;
   doctor|setup|start|stop|status|health|backend|models|backup|restore|benchmark|benchmark-backends)
     dispatch "${REPO_ROOT}/scripts/${command_name}.sh" "$@"
+    ;;
+  debug-webui-chat)
+    dispatch "${REPO_ROOT}/scripts/debug-webui-chat.sh" "$@"
+    ;;
+  debug-backends-chat)
+    dispatch "${REPO_ROOT}/scripts/debug-backends-chat.sh" "$@"
     ;;
   apply-inference)
     dispatch "${REPO_ROOT}/scripts/apply-inference.sh" "$@"
