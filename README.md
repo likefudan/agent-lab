@@ -74,13 +74,12 @@ bin/agent-lab stop
 Apply a mode with `config/open-webui/apply-profile.sh PROFILE`. Changing a mode
 recreates only the Open WebUI container and preserves its named data volume.
 
-The offline configuration and full local workflow matrix pass, but that alone
-is not proof of zero egress. The strict physical/LuLu boundary run is still a
-manual pending acceptance step: disconnect Wi-Fi/Ethernet or apply reviewed
-LuLu rules, then run
-`bin/agent-lab offline verify --boundary-confirmed --full`. See
-[privacy and network boundaries](docs/privacy.md) before making an offline
-claim.
+The offline configuration, full local workflow matrix, and strict
+operator-confirmed boundary run pass on the qualified host. The strict result
+combines the operator's physical/LuLu boundary attestation with an in-container
+local preflight and failed external probe; Agent Lab does not independently
+inspect firewall rules. See [privacy and network boundaries](docs/privacy.md)
+for the verification protocol and the precise scope of this claim.
 
 ## Data and safety
 
@@ -106,9 +105,9 @@ like credentials. See [backup and recovery](docs/recovery.md).
 
 ## Known limitations
 
-- The strict physical/LuLu zero-egress acceptance run requires operator action
-  and remains pending; configuration-only verification must not be presented as
-  that proof.
+- Strict zero-egress acceptance remains operator-controlled. The qualified run
+  passed, but its boundary is attested by the operator rather than independently
+  inspected by Agent Lab.
 - The MVP supports Apple Silicon macOS only and is qualified specifically on a
   24 GB M5 host with the pinned component versions.
 - Only Gemma is approved for image input. Scanned-PDF OCR is not included.

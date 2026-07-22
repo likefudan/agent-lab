@@ -60,13 +60,15 @@ For routine regression without a firewall claim, run
 result `configuration_only`, tests local denial paths, and restores the prior
 profile in its exit and signal traps.
 
-The configuration-only full matrix has passed on the qualified host. The
-physical/LuLu run has **not yet been completed in the current release
-qualification** and remains an explicit manual acceptance item. Until a clean
-`user_attested_boundary_webui_probe_passed` result is reviewed, describe Agent Lab
-as offline-first
-and locally functional without internet—not as independently proven
-zero-egress.
+Both the configuration-only full matrix and the strict operator-confirmed run
+passed on the qualified host. The strict run completed at
+`2026-07-22T12:15:16Z` with status `pass`, boundary
+`user_attested_boundary_webui_probe_passed`, all three remote-attempt checks
+denied, all core checks verified, and the prior `online-manual` profile
+restored. This supports the qualified zero-egress claim within the protocol's
+scope: the result combines an operator attestation with a checked local
+preflight and failed external probe; it does not independently inspect the
+physical disconnection or LuLu rules.
 
 The verifier writes its evidence under `.agent-lab/results/`, restores the
 previous profile on normal exit and handled signals, and never disables or

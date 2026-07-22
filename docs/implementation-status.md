@@ -2,12 +2,12 @@
 
 Updated: 2026-07-22 (America/Los_Angeles)
 
-The MVP implementation is functionally complete on
-`codex/implement-local-ai-stack`. One user-controlled release test remains
-before the release-candidate tag may be created: the strict physical or LuLu
-zero-egress run described below. `.cursor/` remains ignored editor metadata;
-this tracked document and [decision 0010](decisions/0010-mvp-qualification.md)
-are the continuation authority.
+The MVP implementation and qualification are complete on
+`codex/implement-local-ai-stack`. The final user-controlled physical or LuLu
+zero-egress run passed on 2026-07-22. `.cursor/` remains ignored editor
+metadata; this tracked document and
+[decision 0010](decisions/0010-mvp-qualification.md) are the continuation
+authority.
 
 ## Completed
 
@@ -20,37 +20,31 @@ are the continuation authority.
   deliberately bad response is rejected
 - P8-T02: native M5 benchmark with schema validation, cleanup, randomized
   serialized samples, digest-safe comparison, and recorded hardware evidence
-- P8-T03 except its mandatory strict-boundary row: static, smoke, integration,
-  search, Promptfoo, configuration-only full offline, benchmark, and recovery
-  rows pass
+- P8-T03: static, smoke, integration, search, Promptfoo, configuration-only and
+  strict full offline, benchmark, and recovery rows pass
 - P9-T01/T02: installation, first-run, operations, privacy, limitations, and
   recovery documentation
 - P9-T03 manifest work: runtime, UI, CLI, evaluation packages, embedding model,
   and model artifacts have exact versions plus immutable revisions/digests
 
-## Release blocker
+## Release qualification
 
-P6-T03 and the final P8/P9 release gates require a user-controlled outbound
-boundary. LuLu is installed on the qualified Mac, but reviewed blocking rules
-were not enabled during this task. The safe connected-host command has passed:
-
-```sh
-bin/agent-lab offline verify --config-only --full
-```
-
-That result explicitly does **not** prove zero egress. To clear the blocker,
-turn off Wi-Fi and disconnect Ethernet, or enable reviewed LuLu rules that block
-outbound traffic for Docker Desktop and Ollama while preserving local traffic,
-then run:
+The final strict command passed at `2026-07-22T12:15:16Z`:
 
 ```sh
 bin/agent-lab offline verify --boundary-confirmed --full
 ```
 
-The ignored `.agent-lab/results/offline-latest.json` must report status `pass`
-and boundary `user_attested_boundary_webui_probe_passed`. Restore networking after
-review. Only then rerun the fast release gate, record the final commit in
-decision 0010, and create `v0.1.0-rc.1`.
+The ignored evidence reported status `pass`, boundary
+`user_attested_boundary_webui_probe_passed`, denied search/model-pull/remote-model
+attempts, verified models/embedding cache/chat, and restored `online-manual`.
+This clears the final qualification blocker. The result relies on the operator's
+boundary attestation and does not independently inspect LuLu rules.
+
+The annotated `v0.1.0-rc.1` tag remains the published historical MVP freeze at
+commit `a7bb65b2877b19c7041c85a36573d556a4b0f759`; release history was not rewritten
+after the later qualification hardening. Decision 0010 records the subsequently
+qualified implementation commit.
 
 ## Verified host state
 
