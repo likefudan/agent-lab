@@ -102,6 +102,7 @@ bin/agent-lab backend start mlx_lm --model-alias qwen-4b
 bin/agent-lab backend stop mlx_lm
 bin/agent-lab backend use ollama          # record + apply-inference
 bin/agent-lab apply-inference             # rewire clients without changing id
+bin/agent-lab apply-webui-params          # thinking off, max_tokens, num_ctx, keep_alive
 bin/agent-lab benchmark-backends --dry-run
 bin/agent-lab benchmark-backends --smoke --backends ollama --aliases qwen-4b
 ```
@@ -112,6 +113,15 @@ WebUI providers when healthy). Non-Ollama actives use OpenAI `/v1` only — no
 silent Ollama fallthrough. Starting a managed mlx_*/llama_cpp peer stops other
 managed heavy peers by default (24 GiB single-heavy-server guidance); pass
 `--keep-others` only when you accept the memory risk.
+
+**Open WebUI chat defaults:** `apply-inference` (and
+`bin/agent-lab apply-webui-params`) write
+`config/open-webui/model-params.json` into Admin
+`DEFAULT_MODEL_PARAMS` (`think:false`, `max_tokens:512`, `num_ctx:4096`,
+`keep_alive:5m`) into Admin defaults **and** the admin user's Chat Controls
+`ui.params` (otherwise the browser may omit Max Tokens and generation runs
+unbounded). Title/tags/follow-up/autocomplete and Memory stay on. Leave
+Controls → Think **Off**; raise Max Tokens only if you accept longer waits.
 
 **Vision split:** text on `mlx_lm` (`:11435`) and vision on `mlx_vlm`
 (`:11436`) without a custom gateway. `backend use` wires one active connection;
@@ -127,6 +137,20 @@ Install notes and duplicate disk cost:
 [installation — optional inference backends](installation.md#optional-inference-backends-post-mvp).
 Privacy for HF / LM Studio downloads:
 [privacy — multi-backend weights](privacy.md#multi-backend-weights-and-downloads).
+
+## LLM CLI (terminal chat)
+
+Pinned `llm` + `llm-ollama` talk to the **active** backend via
+`.agent-lab/llm/`. Prefer the wrapper so env/aliases stay correct:
+
+```sh
+uv tool install --from 'llm==0.31.1' llm --with 'llm-ollama==0.16.1'   # once
+bin/agent-lab apply-inference
+bin/agent-lab llm -m qwen-4b -o think false -o num_predict 256 '世界杯是什么？'
+bin/agent-lab llm -m qwen-9b chat -o think false
+```
+
+Details: `config/llm/README.md`. Smoke: `tests/smoke/test-llm-cli.sh`.
 
 ## Resource limits and model switching
 

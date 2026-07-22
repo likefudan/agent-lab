@@ -5,7 +5,23 @@ the active backend is `ollama`. Prefer `agent-lab backend use <id>` /
 `agent-lab apply-inference`, which write the private runtime under
 `.agent-lab/llm/` for the active backend (Ollama-native or OpenAI `/v1`).
 
-Manual copy (ollama path only):
+## Day-to-day (recommended)
+
+```sh
+# Install once (pinned; see docs/installation.md)
+uv tool install --from 'llm==0.31.1' llm --with 'llm-ollama==0.16.1'
+
+bin/agent-lab start                 # Ollama / active backend
+bin/agent-lab apply-inference       # refresh .agent-lab/llm/
+bin/agent-lab llm -m qwen-4b -o think false -o num_predict 256 '世界杯是什么？'
+bin/agent-lab llm -m qwen-9b chat -o think false
+```
+
+`bin/agent-lab llm` sets `LLM_USER_PATH` to `.agent-lab/llm/` and loads the
+active-backend `environment.env`. Use `-o think false` so Qwen does not burn
+the token budget on hidden reasoning (same lesson as Open WebUI).
+
+## Manual copy (ollama path only)
 
 ```sh
 mkdir -p .agent-lab/llm

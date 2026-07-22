@@ -19,6 +19,8 @@ Commands:
   health             Run local health checks
   backend            List, status, start, stop, or use inference backends
   apply-inference    Rewire WebUI / LLM CLI / Aider to the active backend
+  apply-webui-params Apply Agent Lab Open WebUI DEFAULT_MODEL_PARAMS
+  llm                Run LLM CLI with Agent Lab runtime (active backend)
   models             List, verify, or pull approved models
   backup             Back up non-reproducible local data
   restore            Restore a validated backup
@@ -75,6 +77,12 @@ case "$command_name" in
     ;;
   apply-inference)
     dispatch "${REPO_ROOT}/scripts/apply-inference.sh" "$@"
+    ;;
+  apply-webui-params)
+    dispatch "${REPO_ROOT}/config/open-webui/apply-model-params.sh" "$@"
+    ;;
+  llm)
+    dispatch "${REPO_ROOT}/scripts/llm.sh" "$@"
     ;;
   offline)
     [[ $# -gt 0 ]] || fail_usage 'offline requires the verify subcommand'

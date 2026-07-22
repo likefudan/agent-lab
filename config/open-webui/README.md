@@ -27,3 +27,25 @@ Inference provider wiring follows the active backend (see
 OpenAI-compatible `/v1` connection; non-Ollama backends disable the Ollama
 provider so chat cannot silently fall through. Optional second connection for
 a vision split (`mlx_lm` + `mlx_vlm`) is documented under `config/inference/`.
+
+## Chat model defaults (performance)
+
+Open WebUI stores admin **DEFAULT_MODEL_PARAMS** in `webui.db`. Agent Lab's
+approved baseline lives in `config/open-webui/model-params.json`:
+
+- **Keep:** `think:false`, `max_tokens:512`, `num_ctx:4096`, `keep_alive:5m`
+  (Think On and missing Max Tokens are what dominate latency. Admin
+  `DEFAULT_MODEL_PARAMS` alone may not reach the browser; apply also writes
+  these into the admin user's Chat Controls `ui.params`.)
+- **Also apply:** title / tags / follow-up / autocomplete **on**, Memory **on**
+  (not the main latency drivers when Max Tokens is enforced).
+
+```sh
+bin/agent-lab start
+bin/agent-lab apply-webui-params
+```
+
+`apply-inference` also re-applies these when WebUI is reachable. Chat Controls →
+**Think** and per-chat Advanced Params still override defaults. Do not put
+`think` or `num_predict` in Advanced Params as **strings** — use the Controls
+toggle and Default Model Params instead.

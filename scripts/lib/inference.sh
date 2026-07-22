@@ -439,6 +439,10 @@ agent_lab_inference_apply() {
   esac
   if agent_lab_inference_webui_healthy; then
     agent_lab_inference_apply_webui_api "$resolved" || true
+    if [[ -x "$AGENT_LAB_REPO_ROOT/config/open-webui/apply-model-params.sh" ]]; then
+      "$AGENT_LAB_REPO_ROOT/config/open-webui/apply-model-params.sh" >/dev/null ||
+        warn 'Open WebUI model params apply failed; run config/open-webui/apply-model-params.sh'
+    fi
   else
     info 'Open WebUI is not healthy; provider API update deferred until next start/apply'
   fi

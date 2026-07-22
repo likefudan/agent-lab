@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "description": "Agent Lab Open WebUI defaults. Applied via config/open-webui/apply-model-params.sh.",
+  "DEFAULT_MODEL_PARAMS": {
+    "think": false,
+    "temperature": 0,
+    "num_ctx": 4096,
+    "max_tokens": 512,
+    "keep_alive": "5m"
+  },
+  "TASK_CONFIG": {
+    "ENABLE_TITLE_GENERATION": true,
+    "ENABLE_TAGS_GENERATION": true,
+    "ENABLE_FOLLOW_UP_GENERATION": true,
+    "ENABLE_AUTOCOMPLETE_GENERATION": true
+  },
+  "USER_UI": {
+    "memory": true
+  },
+  "notes": [
+    "think:false is the performance-critical default (Qwen reasoning can dominate max_tokens).",
+    "max_tokens maps to Ollama options.num_predict (Open WebUI payload remap).",
+    "Admin DEFAULT_MODEL_PARAMS alone may not bind on chat; apply-model-params also writes the same keys into the admin user's ui.params so the browser sends max_tokens every request.",
+    "Title/tags/follow-up/autocomplete/memory stay enabled (quiet-host isolation: ~0% main-reply impact when max_tokens is enforced).",
+    "Do NOT put think/num_predict in Advanced Params custom_params as strings; use Controls + ui.params.",
+    "num_ctx 4096 matches config/models.json inference.context for approved aliases.",
+    "keep_alive 5m matches MVP hardware recommendation (decision 0010)."
+  ]
+}
