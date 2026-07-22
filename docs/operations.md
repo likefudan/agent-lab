@@ -55,6 +55,27 @@ Model pulls are online maintenance actions, are blocked by the offline profile,
 and must be performed one alias at a time. A missing alias fails locally; there
 is no cloud fallback.
 
+## Open WebUI auxiliary tasks
+
+Title generation, follow-up suggestions, automatic tags, and prompt
+autocomplete are separate model requests. Apply the Agent Lab task preset after
+first start and after restoring an older WebUI data volume:
+
+```sh
+config/open-webui/apply-task-config.sh
+```
+
+The preset reuses `qwen3.5:4b`, disables thinking, constrains responses to JSON,
+and enforces a 64-token output limit. It does not load a second model, and all
+four features remain enabled. Without this preset, the pinned Open WebUI/Ollama
+combination can lose the task output cap, consume the entire 4,096-token
+context, return unparseable metadata, and occupy the single local runner for
+several minutes.
+
+If the administrator password was changed in Open WebUI without updating the
+ignored `.env`, either synchronize `WEBUI_ADMIN_PASSWORD` in that private file
+or apply the preset once with `OPEN_WEBUI_ADMIN_PASSWORD` set in the shell.
+
 ## Local document RAG
 
 Agent Lab uses Open WebUI's built-in file ingestion, Chroma vector storage, and

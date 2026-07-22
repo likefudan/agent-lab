@@ -13,8 +13,18 @@ same `.env` across restarts so existing sessions remain valid.
 
 The private file also contains a generated first-run administrator password for
 `admin@localhost`. Read it directly from `.env` when signing in for the first
-time; setup and start never print it. Change the password in the upstream UI
-after first login, then continue treating `.env` as sensitive.
+time; setup and start never print it. If the password is changed in the
+upstream UI, synchronize `WEBUI_ADMIN_PASSWORD` in `.env` so authenticated
+configuration scripts continue to work, then continue treating the file as
+sensitive.
+
+After the first start, apply the local RAG and low-latency auxiliary-task
+presets:
+
+```sh
+config/open-webui/apply-rag-config.sh
+config/open-webui/apply-task-config.sh
+```
 
 Authentication settings are seeded into Open WebUI's database on first start.
 The named `agent-lab-open-webui-data` volume contains the complete application
