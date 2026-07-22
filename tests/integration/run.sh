@@ -23,6 +23,7 @@ run_test() {
 run_test test-diagnostics.sh
 run_test test-models.sh
 run_test test-lifecycle.sh
+run_test test-chat-config.sh
 run_test test-task-config.sh
 run_test test-rag.sh
 run_test test-backup-restore.sh

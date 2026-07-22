@@ -68,12 +68,15 @@ the local RAG embedding files, apply the default profile, and verify health:
 ```sh
 config/open-webui/apply-rag-config.sh
 config/open-webui/verify-embedding-cache.sh
+config/open-webui/apply-chat-config.sh
 config/open-webui/apply-task-config.sh
 config/open-webui/apply-profile.sh online-manual
 bin/agent-lab health
 ```
 
-The task configuration keeps title, follow-up, tag, and prompt-autocomplete
+The chat configuration gives normal answers a 4,096-token output budget within
+an 8,192-token context. The
+separate task configuration keeps title, follow-up, tag, and prompt-autocomplete
 features enabled while routing them through a Qwen 4B preset with thinking
 disabled, JSON-constrained output, and a strict 64-token output cap. This
 prevents auxiliary requests from filling the 4,096-token context or returning

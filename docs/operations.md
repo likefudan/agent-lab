@@ -55,6 +55,19 @@ Model pulls are online maintenance actions, are blocked by the offline profile,
 and must be performed one alias at a time. A missing alias fails locally; there
 is no cloud fallback.
 
+Normal chat and auxiliary tasks have deliberately separate output budgets.
+Apply the normal-chat defaults after first start and after restoring an older
+WebUI data volume:
+
+```sh
+config/open-webui/apply-chat-config.sh
+```
+
+Normal Qwen and Gemma answers receive up to 4,096 output tokens within an
+8,192-token context. The task preset below remains capped at 64 tokens in its
+separate 4,096-token context, so raising the chat budget cannot reintroduce
+runaway title or tag generation.
+
 ## Open WebUI auxiliary tasks
 
 Title generation, follow-up suggestions, automatic tags, and prompt

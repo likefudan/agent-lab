@@ -45,6 +45,7 @@ bin/agent-lab models pull qwen-9b
 bin/agent-lab models pull gemma-12b
 
 config/open-webui/apply-rag-config.sh
+config/open-webui/apply-chat-config.sh
 config/open-webui/apply-task-config.sh
 config/open-webui/apply-profile.sh online-manual
 bin/agent-lab health

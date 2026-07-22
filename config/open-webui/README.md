@@ -23,6 +23,7 @@ presets:
 
 ```sh
 config/open-webui/apply-rag-config.sh
+config/open-webui/apply-chat-config.sh
 config/open-webui/apply-task-config.sh
 ```
 
