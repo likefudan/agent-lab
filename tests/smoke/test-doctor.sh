@@ -33,7 +33,7 @@ if run_doctor "$tmp_dir/missing.out" "$tmp_dir"; then
 fi
 grep -q 'FAIL  jq: missing required software' "$tmp_dir/missing.out"
 grep -q 'optional client' "$tmp_dir/missing.out"
-grep -q 'deferred evaluation tool' "$tmp_dir/missing.out"
+grep -Eq 'evaluation prerequisite|pinned evaluation tool' "$tmp_dir/missing.out"
 ! grep -Eiq 'token=|password=|secret=' "$tmp_dir/missing.out"
 [ "$(wc -l < "$tmp_dir/missing.out" | tr -d ' ')" -le 25 ]
 

@@ -1,5 +1,100 @@
 # Installation
 
+This guide reproduces the Agent Lab MVP on Apple Silicon macOS. The qualified
+host is an M5 MacBook Air with 24 GB unified memory, macOS 26.5.2, Docker
+Desktop 4.80.0 (engine 29.6.1), native Ollama `0.32.1`, Open WebUI `0.10.2`,
+LLM CLI `0.31.1`, `llm-ollama` `0.16.1`, and Aider `0.86.2`. Other Apple
+Silicon systems may work, but are not the release-qualified host.
+
+## Prerequisites
+
+Install and start Docker Desktop, and make sure these commands are available:
+
+```sh
+git --version
+curl --version
+jq --version
+docker info
+docker compose version
+```
+
+The runtime minimums checked by `doctor` are Git 2.30, curl 7.70, jq 1.6, and
+Docker 24. The Open WebUI image is pinned by OCI digest, so no local source
+build is required. Approximately 20 GB is needed for the three approved model
+artifacts in addition to Docker data, caches, and safe working space.
+
+Clone the repository and remain on the intended release branch or tag:
+
+```sh
+git clone https://github.com/likefudan/agent-lab.git
+cd agent-lab
+bin/agent-lab doctor
+```
+
+`doctor` is read-only. Resolve every `FAIL` before setup; missing optional
+terminal and evaluation clients appear as warnings. Agent Lab does not install
+or upgrade Homebrew, Docker Desktop, Ollama, Python, Node, or `uv` on the
+operator's behalf.
+
+## Reproducible first run
+
+First complete the pinned Ollama installation below and start Docker Desktop.
+Then create the private environment and durable WebUI volume:
+
+```sh
+bin/agent-lab setup
+bin/agent-lab start --install-launch-agent
+```
+
+The first `start` asks before installing the per-user launch agent. It also
+starts the digest-pinned Open WebUI container at <http://127.0.0.1:3000>.
+The local administrator email and generated password are stored only in the
+ignored `.env`; protect that file and do not paste it into logs or commits.
+
+While connected, download and verify the approved artifacts serially:
+
+```sh
+bin/agent-lab models pull qwen-4b
+bin/agent-lab models pull qwen-9b
+bin/agent-lab models pull gemma-12b
+bin/agent-lab models verify
+```
+
+Each pull displays its approximate size and asks for confirmation. The command
+rejects an artifact whose manifest or blob digests differ from
+`config/models.json`; it never substitutes a hosted model. Next cache and pin
+the local RAG embedding files, apply the default profile, and verify health:
+
+```sh
+config/open-webui/apply-rag-config.sh
+config/open-webui/verify-embedding-cache.sh
+config/open-webui/apply-profile.sh online-manual
+bin/agent-lab health
+```
+
+Open <http://127.0.0.1:3000>, sign in with the `.env` administrator values,
+select a model, and send a short message. Upload a small text document and ask
+a question whose answer appears only in that document; verify the answer cites
+the uploaded source. Use `gemma-12b` for an image check. These actions confirm
+the browser, local inference, persistent RAG path, and vision route.
+
+Before relying on disconnected operation, read the [privacy and offline
+boundary guide](privacy.md). The full configuration-only regression is safe to
+run while connected, but it is not zero-egress proof:
+
+```sh
+bin/agent-lab offline verify --config-only --full
+```
+
+## Updating a pinned installation
+
+Do not independently update Ollama, the Open WebUI image, model tags, embedding
+revision, LLM CLI, or Aider. Their versions and immutable identifiers form one
+tested compatibility set in `config/components.json`, `config/models.json`, and
+the client requirement files. Move to a newer reviewed Agent Lab release, read
+its migration notes, make a verified backup, then run its validation and
+acceptance tests before replacing the current set.
+
 Agent Lab uses the pinned Homebrew Ollama `0.32.1` executable and an
 Agent Lab-owned per-user `launchd` job. It deliberately does not use plain
 `brew services`: the generated job durably sets the local-only runtime contract
@@ -65,7 +160,13 @@ only the IPv4 loopback listener. The job's `RunAtLoad` and `KeepAlive` settings
 provide persistence across login and reboot; verify persistence on the real host
 by logging out or rebooting, then repeating the three read-only checks above.
 
-## LLM CLI
+## Terminal clients
+
+Both terminal clients connect directly to the loopback Ollama API. They do not
+route through Open WebUI and therefore do not share its conversations or RAG
+collections.
+
+### LLM CLI
 
 Agent Lab qualifies [LLM CLI](https://llm.datasette.io/) `0.31.1` with the
 native [llm-ollama](https://github.com/taketwo/llm-ollama) plugin `0.16.1`.
@@ -141,7 +242,7 @@ and proxy-blocked offline operation. It confirms all history and cancellation
 bookkeeping stay inside the disposable runtime and that no credentials file is
 created; the directory is removed after the test.
 
-## Aider
+### Aider
 
 Agent Lab qualifies [Aider](https://aider.chat/) `0.86.2` as the
 repository-aware coding client. Install the pinned package in an isolated uv

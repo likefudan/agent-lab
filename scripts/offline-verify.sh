@@ -24,11 +24,12 @@ Usage: agent-lab offline verify (--config-only | --boundary-confirmed) [--quick 
 --config-only verifies offline configuration and local denial paths without
 claiming a physical zero-egress boundary.
 
---boundary-confirmed additionally verifies that a user-controlled outbound
-boundary is active. Before using it, turn off Wi-Fi and disconnect Ethernet, or
-use reviewed LuLu rules that block outbound traffic for Docker Desktop and
-Ollama while preserving loopback/container-to-host traffic. Agent Lab never
-changes pf, LuLu, or interface state itself.
+--boundary-confirmed records the operator's attestation that a user-controlled
+outbound boundary is active and proves the WebUI container cannot reach a fixed
+external probe. Before using it, turn off Wi-Fi and disconnect Ethernet, or use
+reviewed LuLu rules that block outbound traffic for Docker Desktop and Ollama
+while preserving loopback/container-to-host traffic. Agent Lab never changes
+pf, LuLu, or interface state itself.
 EOF
 }
 
@@ -116,7 +117,24 @@ if [[ $full == true ]]; then
   HTTP_PROXY=http://127.0.0.1:9 HTTPS_PROXY=http://127.0.0.1:9 ALL_PROXY=http://127.0.0.1:9 NO_PROXY=127.0.0.1,localhost \
     "$ROOT/tests/smoke/test-aider.sh"
   "$ROOT/tests/integration/test-rag.sh"
-  "$ROOT/tests/integration/test-model-lifecycle.sh"
+  # P2-T03 owns the destructive isolated-server lifecycle suite. Here the
+  # managed server must remain up for WebUI, so exercise live model switching
+  # without attempting to bind a second Ollama to the same port.
+  for model in qwen3.5:4b qwen3.5:9b gemma4:12b; do
+    switch_response=$(curl --fail --silent --show-error --max-time 240 \
+      -H 'Content-Type: application/json' \
+      --data "$(jq -cn --arg model "$model" '{model:$model,messages:[{role:"user",content:"Reply exactly SWITCH-OK"}],stream:false,think:false,keep_alive:"5m",options:{temperature:0,num_predict:32,num_ctx:4096}}')" \
+      "$OLLAMA_URL/api/chat")
+    [[ $(jq -r '.message.content' <<<"$switch_response" | tr -d '[:space:]') == SWITCH-OK ]] ||
+      die "offline model switch failed for $model" || exit 1
+    loaded=$(curl --fail --silent --show-error "$OLLAMA_URL/api/ps")
+    [[ $(jq '.models | length' <<<"$loaded") -eq 1 ]] ||
+      die "offline model switch loaded more than one model for $model" || exit 1
+    [[ $(jq -r '.models[0].name' <<<"$loaded") == "$model" ]] ||
+      die "offline active model does not match $model" || exit 1
+  done
+  curl --fail --silent --show-error --max-time 30 -H 'Content-Type: application/json' \
+    --data '{"model":"gemma4:12b","keep_alive":0}' "$OLLAMA_URL/api/generate" >/dev/null
 else
   text=$(curl --fail --silent --show-error --max-time 120 -H 'Content-Type: application/json' \
     -H "Authorization: Bearer ${token}" --data '{"model":"qwen3.5:4b","messages":[{"role":"user","content":"Reply exactly OFFLINE-LOCAL-OK"}],"stream":false,"think":false,"keep_alive":0}' \
@@ -126,18 +144,32 @@ fi
 
 boundary='configuration_only'
 if [[ $boundary_confirmed == true ]]; then
-  if docker exec "$container_id" curl --silent --max-time 5 https://example.com >/dev/null 2>&1; then
+  docker exec "$container_id" sh -c 'command -v curl >/dev/null && curl --fail --silent --max-time 5 http://127.0.0.1:8080/health >/dev/null' ||
+    die 'boundary probe preflight failed inside Open WebUI; cannot interpret an outbound failure' || exit 1
+  set +e
+  docker exec "$container_id" curl --fail --silent --show-error --max-time 5 https://example.com >/dev/null 2>&1
+  outbound_status=$?
+  set -e
+  if [[ $outbound_status -eq 0 ]]; then
     die 'outbound boundary is not active: Open WebUI reached example.com'
     exit 1
   fi
-  boundary='user_controlled_egress_block_verified'
+  case $outbound_status in
+    5|6|7|28|35|52|56|60) ;;
+    *) die "outbound probe failed ambiguously with curl/docker status $outbound_status"; exit 1 ;;
+  esac
+  boundary='user_attested_boundary_webui_probe_passed'
 else
   printf '%s\n' 'NOTICE: configuration-only pass; no physical/LuLu zero-egress claim was made.'
 fi
 
 mkdir -p "$ROOT/.agent-lab/results"
 results_file="$ROOT/.agent-lab/results/offline-latest.json"
+"$ROOT/config/open-webui/apply-profile.sh" "$previous_profile" >/dev/null
+[[ $(agent_lab_active_profile) == "$previous_profile" ]] ||
+  die "failed to verify restoration of profile $previous_profile" || exit 1
+profile_applied=false
 jq -n --arg boundary "$boundary" --arg previous_profile "$previous_profile" \
   --arg timestamp "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" \
   '{status:"pass",timestamp:$timestamp,boundary:$boundary,profile_during_test:"offline",restored_profile:$previous_profile,remote_attempts:{search:"denied",model_pull:"denied",remote_model:"denied"},core:{models:"verified",embedding_cache:"verified",chat:"verified"}}' > "$results_file"
-printf 'PASS: offline verification (%s); profile will restore to %s\n' "$boundary" "$previous_profile"
+printf 'PASS: offline verification (%s); restored profile %s\n' "$boundary" "$previous_profile"

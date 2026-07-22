@@ -1,5 +1,60 @@
 # Operations
 
+Run Agent Lab from the repository root. Normal lifecycle operations preserve
+the Ollama model store and the external Open WebUI data volume:
+
+```sh
+bin/agent-lab start
+bin/agent-lab status
+bin/agent-lab health
+bin/agent-lab stop
+```
+
+`status` is read-only and has a stable JSON form for automation. `health`
+checks the pinned runtime, WebUI, models, profile, local storage, and embedding
+cache and exits nonzero when action is required. `stop` stops WebUI and unloads
+the managed Ollama process without uninstalling the launch agent or deleting
+data.
+
+## Profile operations
+
+Agent Lab has three explicit profiles:
+
+| Profile | Network-dependent behavior | Intended use |
+| --- | --- | --- |
+| `online-manual` | DuckDuckGo search only after explicit user selection; model pulls allowed | Default connected use |
+| `online-automatic` | The local model may choose DuckDuckGo search; model pulls allowed | Opt-in agentic search |
+| `offline` | Search, pulls, remote tools, update checks, and model auto-updates disabled | Cached local workflows only |
+
+Apply a profile with:
+
+```sh
+config/open-webui/apply-profile.sh online-manual
+```
+
+Replace the last argument with another reviewed profile. Applying one recreates
+the Open WebUI container to make environment changes effective, updates its
+durable search configuration, and records the selection in the ignored
+`.agent-lab/profile`; the named data volume is preserved. Wait for the command
+to report success before sending requests. Profile selection is application
+policy, not a firewall or zero-egress proof; see [privacy](privacy.md).
+
+## Model selection and memory
+
+Use `qwen-9b` for normal chat, `qwen-4b` when latency or memory matters, and
+`gemma-12b` for coding or images. Agent Lab configures Ollama to keep at most one
+model loaded. Avoid concurrent requests across models on the 24 GB target.
+
+```sh
+bin/agent-lab models list
+bin/agent-lab models verify
+curl --fail --silent http://127.0.0.1:11434/api/ps | jq .
+```
+
+Model pulls are online maintenance actions, are blocked by the offline profile,
+and must be performed one alias at a time. A missing alias fails locally; there
+is no cloud fallback.
+
 ## Local document RAG
 
 Agent Lab uses Open WebUI's built-in file ingestion, Chroma vector storage, and

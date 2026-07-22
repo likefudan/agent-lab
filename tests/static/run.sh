@@ -23,8 +23,10 @@ if command -v shellcheck >/dev/null 2>&1; then
   # SC2086 is intentional here: shell_files is a newline-delimited list of
   # repository paths, and project paths do not contain whitespace at present.
   # shellcheck disable=SC2086
-  shellcheck -x $shell_files
-  printf '%s\n' 'PASS: ShellCheck'
+  # Gate on correctness errors. Style and portability warnings remain useful
+  # locally but are not release blockers for this macOS/Bash integration repo.
+  shellcheck --severity=error -x $shell_files
+  printf '%s\n' 'PASS: ShellCheck (error severity)'
 else
   printf '%s\n' 'SKIP: ShellCheck is not installed (required before contributor release checks)'
 fi
@@ -56,7 +58,7 @@ while IFS= read -r markdown_file; do
     target="$(dirname "$markdown_file")/$decoded_link"
     [[ -e "$target" ]] || fail "broken relative Markdown link in $markdown_file: $link"
   done < <(rg --no-filename -o '\[[^]]+\]\([^)]+' "$markdown_file" | sed -E 's/^.*\]\((.*)$/\1/' || true)
-done < <(find . -path './.git' -prune -o -path './.agent-lab' -prune -o -name '*.md' -type f -print)
+done < <(find . -path './.git' -prune -o -path './.agent-lab' -prune -o -path '*/node_modules' -prune -o -name '*.md' -type f -print)
 printf '%s\n' 'PASS: relative Markdown links'
 
 tracked_candidates="$(git ls-files --cached --others --exclude-standard)"

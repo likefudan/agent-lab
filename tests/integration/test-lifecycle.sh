@@ -33,9 +33,9 @@ restore_running=true
 if "$CLI" health >"${TMPDIR:-/tmp}/agent-lab-stopped-health.$$" 2>&1; then
   fail 'health unexpectedly passed while core services were stopped'
 fi
-grep -q 'FAIL  Ollama is unavailable' "${TMPDIR:-/tmp}/agent-lab-stopped-health.$$" ||
+grep -q 'FAIL  Ollama endpoint: unavailable' "${TMPDIR:-/tmp}/agent-lab-stopped-health.$$" ||
   fail 'stopped Ollama was not diagnosed'
-grep -q 'FAIL  Open WebUI is unavailable' "${TMPDIR:-/tmp}/agent-lab-stopped-health.$$" ||
+grep -q 'FAIL  Open WebUI: unavailable' "${TMPDIR:-/tmp}/agent-lab-stopped-health.$$" ||
   fail 'stopped Open WebUI was not diagnosed'
 rm -f "${TMPDIR:-/tmp}/agent-lab-stopped-health.$$"
 
@@ -53,7 +53,7 @@ if "$CLI" health >"${TMPDIR:-/tmp}/agent-lab-webui-health.$$" 2>&1; then
 fi
 grep -q 'PASS  Ollama' "${TMPDIR:-/tmp}/agent-lab-webui-health.$$" ||
   fail 'healthy Ollama was not preserved while WebUI was stopped'
-grep -q 'FAIL  Open WebUI is unavailable' "${TMPDIR:-/tmp}/agent-lab-webui-health.$$" ||
+grep -q 'FAIL  Open WebUI: unavailable' "${TMPDIR:-/tmp}/agent-lab-webui-health.$$" ||
   fail 'stopped Open WebUI was not diagnosed'
 rm -f "${TMPDIR:-/tmp}/agent-lab-webui-health.$$"
 

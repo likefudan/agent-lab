@@ -106,8 +106,9 @@ understanding, and exact-OCR tests and is the approved multimodal model.
 
 The evidence-based initial defaults are `qwen-9b` for chat, `qwen-4b` for fast
 requests, and `gemma-12b` for coding and vision. These assignments establish
-safe capability routing; broader quality ranking remains deferred until the
-later coding, chat, vision, latency, memory, and model-switch benchmarks.
+safe capability routing. The MVP regression suite and native benchmark record
+quality gates, latency, memory, throughput, and switching behavior on the
+qualified host; they are a release baseline, not a universal model ranking.
 
 The earlier `qwen3.5:4b-mlx`, `qwen3.5:9b-mlx`, and `gemma4:12b-mlx` candidates
 remain rejected on Ollama 0.32.1 because image input failed, even though their
@@ -342,7 +343,8 @@ uses:
 2. A downloaded local embedding model
 3. Open WebUI's default local Chroma storage
 4. Hybrid vector and BM25 retrieval
-5. An optional downloaded local cross-encoder reranker
+5. No reranker by default; a local cross-encoder is enabled only after a
+   measurable retrieval gain
 6. Open WebUI context assembly and citations
 
 Docling or another supported local extractor is added only for document types

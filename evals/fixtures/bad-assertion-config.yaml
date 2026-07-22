@@ -1,0 +1,13 @@
+description: Agent Lab deliberate deterministic assertion failure
+sharing: false
+env:
+  OLLAMA_BASE_URL: http://127.0.0.1:11434
+  PROMPTFOO_DISABLE_TELEMETRY: "1"
+  PROMPTFOO_DISABLE_SHARING: "1"
+  PROMPTFOO_DISABLE_REMOTE_GENERATION: "1"
+prompts:
+  - "This prompt is never sent because the fixture supplies providerOutput."
+providers:
+  - id: ollama:chat:qwen3.5:4b
+    label: local-not-called
+tests: file://bad-response.json

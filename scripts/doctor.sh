@@ -4,6 +4,7 @@ set -euo pipefail
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 # shellcheck source=lib/common.sh
 . "$SCRIPT_DIR/lib/common.sh"
+REPO_ROOT=$(repository_root "$SCRIPT_DIR")
 
 failures=0
 warnings=0
@@ -71,20 +72,27 @@ else
 fi
 
 for tool in llm aider; do
-    if command_exists "$tool"; then
-        pass_check "$tool: optional client installed"
-    else
-        warn_check "$tool: optional client not installed"
-    fi
+  if command_exists "$tool"; then
+    pass_check "$tool: optional client installed"
+  elif [ -x "$HOME/.local/bin/$tool" ]; then
+    pass_check "$tool: optional client installed in ~/.local/bin (add it to PATH)"
+  else
+    warn_check "$tool: optional client not installed"
+  fi
 done
 
-for tool in node npm promptfoo; do
-    if command_exists "$tool"; then
-        pass_check "$tool: deferred evaluation tool installed"
-    else
-        warn_check "$tool: deferred evaluation tool not installed"
-    fi
+for tool in node npm; do
+  if command_exists "$tool"; then
+    pass_check "$tool: evaluation prerequisite installed"
+  else
+    warn_check "$tool: evaluation prerequisite not installed"
+  fi
 done
+if command_exists promptfoo || [ -x "$REPO_ROOT/evals/node_modules/.bin/promptfoo" ]; then
+  pass_check 'promptfoo: pinned evaluation tool installed'
+else
+  warn_check 'promptfoo: run npm ci in evals/ to install the pinned evaluation tool'
+fi
 
 printf 'SUMMARY pass/warn/fail: %s/%s/%s\n' "$passes" "$warnings" "$failures"
 [ "$failures" -eq 0 ]

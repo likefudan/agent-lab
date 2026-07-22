@@ -1,0 +1,18 @@
+{
+  "name": "agent-lab-evals",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Local-only Promptfoo regression suites for Agent Lab",
+  "scripts": {
+    "validate": "NODE_OPTIONS='--require=./fixtures/node-keepalive.cjs' PROMPTFOO_DISABLE_TELEMETRY=1 PROMPTFOO_DISABLE_SHARING=1 PROMPTFOO_DISABLE_REMOTE_GENERATION=1 promptfoo validate config -c promptfooconfig.yaml",
+    "eval:fast": "NODE_OPTIONS='--require=./fixtures/node-keepalive.cjs' PROMPTFOO_DISABLE_TELEMETRY=1 PROMPTFOO_DISABLE_SHARING=1 PROMPTFOO_DISABLE_REMOTE_GENERATION=1 promptfoo eval -c promptfooconfig.yaml --filter-metadata suite=fast --max-concurrency 1 --no-cache --no-share --no-write",
+    "eval:full": "NODE_OPTIONS='--require=./fixtures/node-keepalive.cjs' PROMPTFOO_DISABLE_TELEMETRY=1 PROMPTFOO_DISABLE_SHARING=1 PROMPTFOO_DISABLE_REMOTE_GENERATION=1 promptfoo eval -c promptfooconfig.yaml --max-concurrency 1 --no-cache --no-share --no-write",
+    "test:bad-fixture": "sh -c 'if NODE_OPTIONS=\"--require=./fixtures/node-keepalive.cjs\" PROMPTFOO_DISABLE_TELEMETRY=1 PROMPTFOO_DISABLE_SHARING=1 PROMPTFOO_DISABLE_REMOTE_GENERATION=1 promptfoo eval -c fixtures/bad-assertion-config.yaml --max-concurrency 1 --no-cache --no-share --no-write; then echo \"ERROR: deliberately bad response unexpectedly passed\" >&2; exit 1; else echo \"PASS: deliberately bad response was rejected by the equals assertion\"; fi'"
+  },
+  "dependencies": {
+    "promptfoo": "0.121.19"
+  },
+  "engines": {
+    "node": "^20.20.0 || >=22.22.0"
+  }
+}

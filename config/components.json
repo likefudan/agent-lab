@@ -42,13 +42,13 @@
       "capabilities": {
         "native_chat_api": "verified",
         "openai_chat_completions": "verified",
-        "streaming": "verified_contract_model_test_pending",
-        "image_input": "verified_contract_model_test_pending",
-        "tool_calls": "verified_contract_model_test_pending",
+        "streaming": "verified",
+        "image_input": "verified",
+        "tool_calls": "verified",
         "keep_alive": "verified",
         "model_metadata": "verified",
         "metal_device_discovery": "verified",
-        "mlx_model_inference": "model_test_pending"
+        "single_model_residency": "verified"
       },
       "decision": "docs/decisions/0002-ollama-compatibility.md"
     },
@@ -116,13 +116,167 @@
         "persistent_data_volume": "verified",
         "ollama_host_bridge": "verified",
         "local_model_request": "verified",
-        "built_in_rag_configuration": "verified_contract_model_selection_pending",
+        "built_in_rag_configuration": "verified",
         "hybrid_search_configuration": "verified_contract",
-        "reranking_configuration": "verified_contract_model_selection_pending",
-        "duckduckgo_web_search": "verified_contract_profile_configuration_pending",
-        "offline_and_update_controls": "verified_contract"
+        "reranking_configuration": "verified_disabled_by_qualification",
+        "duckduckgo_web_search": "verified",
+        "offline_and_update_controls": "verified"
       },
       "decision": "docs/decisions/0004-open-webui-compatibility.md"
+    },
+    {
+      "id": "llm-cli",
+      "name": "LLM CLI",
+      "type": "native_cli",
+      "status": "mvp",
+      "version": "0.31.1",
+      "license": "Apache-2.0",
+      "source": {
+        "repository": "https://github.com/simonw/llm",
+        "release": "https://github.com/simonw/llm/releases/tag/0.31.1",
+        "tag": "0.31.1",
+        "revision": "e4dce4c6498f604413a0b523e5c4eb4f1fc57891"
+      },
+      "artifact": {
+        "distribution": "pypi_wheel",
+        "reference": "llm-0.31.1-py3-none-any.whl",
+        "url": "https://files.pythonhosted.org/packages/94/9f/816e53685915a3b515f535816ae6909f036ee2767b9d668a7f3743ef5c84/llm-0.31.1-py3-none-any.whl",
+        "sha256": "32a86f216da0797c43a87866737b36f3ba36da8f82f07ca099eb2bf10ed5e56f"
+      },
+      "platform": {
+        "os": "macos",
+        "architecture": "arm64",
+        "installer": "uv tool"
+      },
+      "endpoints": {
+        "ollama": "http://127.0.0.1:11434"
+      },
+      "required_environment": {
+        "OLLAMA_HOST": "http://127.0.0.1:11434",
+        "LLM_LOAD_PLUGINS": "llm-ollama"
+      },
+      "capabilities": {
+        "one_shot": "verified",
+        "multi_turn": "verified",
+        "streaming": "verified",
+        "image_attachment": "verified",
+        "offline_local_execution": "verified"
+      },
+      "decision": "docs/design.md"
+    },
+    {
+      "id": "llm-ollama",
+      "name": "llm-ollama",
+      "type": "native_cli",
+      "status": "mvp",
+      "version": "0.16.1",
+      "license": "Apache-2.0",
+      "source": {
+        "repository": "https://github.com/taketwo/llm-ollama",
+        "release": "https://github.com/taketwo/llm-ollama/releases/tag/0.16.1",
+        "tag": "0.16.1",
+        "revision": "ab38110becfce24a429a725aae2527d4ff9309eb"
+      },
+      "artifact": {
+        "distribution": "pypi_wheel",
+        "reference": "llm_ollama-0.16.1-py3-none-any.whl",
+        "url": "https://files.pythonhosted.org/packages/e4/f0/fe90de9dfb76793e3c2d674eedaf77bb1c599b677f977641359af7270bcf/llm_ollama-0.16.1-py3-none-any.whl",
+        "sha256": "bd0f83b0b68f466405b54eee160e7ac640da0024738268eb54e438bbc906b539"
+      },
+      "platform": {
+        "os": "macos",
+        "architecture": "arm64",
+        "installer": "uv tool companion package"
+      },
+      "endpoints": {
+        "ollama": "http://127.0.0.1:11434"
+      },
+      "required_environment": {
+        "OLLAMA_HOST": "http://127.0.0.1:11434"
+      },
+      "capabilities": {
+        "ollama_provider": "verified",
+        "local_model_aliases": "verified"
+      },
+      "decision": "docs/design.md"
+    },
+    {
+      "id": "aider",
+      "name": "Aider",
+      "type": "native_cli",
+      "status": "mvp",
+      "version": "0.86.2",
+      "license": "Apache-2.0",
+      "source": {
+        "repository": "https://github.com/Aider-AI/aider",
+        "release": "https://github.com/Aider-AI/aider/releases/tag/v0.86.2",
+        "tag": "v0.86.2",
+        "revision": "253f0368b873ba30d8ee26e463718f0c03614ddf"
+      },
+      "artifact": {
+        "distribution": "pypi_wheel",
+        "reference": "aider_chat-0.86.2-py3-none-any.whl",
+        "url": "https://files.pythonhosted.org/packages/75/f7/e20749d9a510673e7adf910b005e3efe4ceaf9c194f1dd40d6931a3f34b9/aider_chat-0.86.2-py3-none-any.whl",
+        "sha256": "64f6a0c66c9f4633ad9f479bca3e64ebcba02b9da03c6b604b74a44736b2416e"
+      },
+      "platform": {
+        "os": "macos",
+        "architecture": "arm64",
+        "python": "3.12.13",
+        "installer": "uv tool"
+      },
+      "endpoints": {
+        "openai_compatible": "http://127.0.0.1:11434/v1"
+      },
+      "required_environment": {
+        "OPENAI_API_BASE": "http://127.0.0.1:11434/v1"
+      },
+      "capabilities": {
+        "repository_edit": "verified",
+        "failure_without_mutation": "verified",
+        "offline_local_execution": "verified"
+      },
+      "decision": "docs/design.md"
+    },
+    {
+      "id": "promptfoo",
+      "name": "Promptfoo",
+      "type": "evaluation_tool",
+      "status": "mvp",
+      "version": "0.121.19",
+      "license": "MIT",
+      "source": {
+        "repository": "https://github.com/promptfoo/promptfoo",
+        "release": "https://github.com/promptfoo/promptfoo/releases/tag/0.121.19",
+        "tag": "0.121.19",
+        "revision": "1ede17aaed940e6dff04f71d24e4ecc011809dae"
+      },
+      "artifact": {
+        "distribution": "npm_tarball",
+        "reference": "promptfoo-0.121.19.tgz",
+        "url": "https://registry.npmjs.org/promptfoo/-/promptfoo-0.121.19.tgz",
+        "sha256": "ce1f3dba80c08797e39ec946aa1fcdb1921182abb8f8f39085af90b6079e7aa4"
+      },
+      "platform": {
+        "os": "macos",
+        "architecture": "arm64",
+        "qualified_node": "26.5.0"
+      },
+      "endpoints": {
+        "ollama": "http://127.0.0.1:11434"
+      },
+      "required_environment": {
+        "OLLAMA_BASE_URL": "http://127.0.0.1:11434",
+        "PROMPTFOO_DISABLE_TELEMETRY": "1",
+        "PROMPTFOO_DISABLE_SHARING": "1",
+        "PROMPTFOO_DISABLE_REMOTE_GENERATION": "1"
+      },
+      "capabilities": {
+        "deterministic_local_regressions": "verified",
+        "hosted_judge": "disabled",
+        "remote_generation": "disabled"
+      },
+      "decision": "docs/decisions/0010-mvp-qualification.md"
     }
   ]
 }

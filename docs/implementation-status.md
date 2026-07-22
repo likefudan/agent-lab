@@ -1,100 +1,76 @@
 # Implementation status and continuation handoff
 
-Updated: 2026-07-18 (America/Los_Angeles)
+Updated: 2026-07-22 (America/Los_Angeles)
 
-This document preserves the implementation state because `.cursor/` is local
-editor metadata and is intentionally ignored. The detailed task definitions
-remain in `.cursor/plans/agent-lab-implementation.plan.md` on this workstation.
+The MVP implementation is functionally complete on
+`codex/implement-local-ai-stack`. One user-controlled release test remains
+before the release-candidate tag may be created: the strict physical or LuLu
+zero-egress run described below. `.cursor/` remains ignored editor metadata;
+this tracked document and [decision 0010](decisions/0010-mvp-qualification.md)
+are the continuation authority.
 
-## Completed plan tasks
+## Completed
 
-- P0-T01 through P0-T05: host, runtime, model, Open WebUI, and RAG-model
-  qualification
-- P1-T01 through P1-T04: catalogs, safety helpers, CLI dispatcher, and static
-  checks
-- P2-T01 through P2-T03: managed Ollama, approved model setup, and single-model
-  lifecycle
-- P3-T01 through P3-T03: pinned Open WebUI, lifecycle, browser/API chat,
-  multimodal input, model presentation, and persistence
-- P4-T01 and P4-T02: LLM CLI and Aider local interfaces
-- P5-T01 through P5-T03: RAG corpus, built-in local RAG, and extraction decision
-- P6-T01, P6-T02, and P6-T04: validated profiles, DuckDuckGo search, and the
-  decision to defer SearXNG
-- P7-T01 through P7-T03: diagnostics, backup/restore, and recovery procedures
+- P0–P5: host/runtime/model qualification, safety helpers, CLI, managed Ollama,
+  pinned Open WebUI, browser/terminal/coding interfaces, and local RAG
+- P6-T01/T02/T04: three validated profiles, DuckDuckGo search, and the decision
+  to defer SearXNG
+- P7: diagnostics, backup/restore, and failure-recovery procedures
+- P8-T01: pinned local-only Promptfoo suite; 22/22 full regressions pass and the
+  deliberately bad response is rejected
+- P8-T02: native M5 benchmark with schema validation, cleanup, randomized
+  serialized samples, digest-safe comparison, and recorded hardware evidence
+- P8-T03 except its mandatory strict-boundary row: static, smoke, integration,
+  search, Promptfoo, configuration-only full offline, benchmark, and recovery
+  rows pass
+- P9-T01/T02: installation, first-run, operations, privacy, limitations, and
+  recovery documentation
+- P9-T03 manifest work: runtime, UI, CLI, evaluation packages, embedding model,
+  and model artifacts have exact versions plus immutable revisions/digests
 
-## In progress
+## Release blocker
 
-### P6-T03: strict offline verification
+P6-T03 and the final P8/P9 release gates require a user-controlled outbound
+boundary. LuLu is installed on the qualified Mac, but reviewed blocking rules
+were not enabled during this task. The safe connected-host command has passed:
 
-Implemented:
+```sh
+bin/agent-lab offline verify --config-only --full
+```
 
-- `scripts/offline-verify.sh`
-- `tests/integration/test-offline.sh`
-- `docs/privacy.md`
-- Open WebUI recreation with `OFFLINE_MODE=true`
-- local denial tests for search, model pulls, and unavailable remote models
-- signal/exit restoration of the prior profile
-- a configuration-only offline test that passes and makes no firewall claim
+That result explicitly does **not** prove zero egress. To clear the blocker,
+turn off Wi-Fi and disconnect Ethernet, or enable reviewed LuLu rules that block
+outbound traffic for Docker Desktop and Ollama while preserving local traffic,
+then run:
 
-Remaining acceptance work:
+```sh
+bin/agent-lab offline verify --boundary-confirmed --full
+```
 
-1. Run the full workflow again without interruption:
-   `bin/agent-lab offline verify --config-only --full`.
-2. The interrupted run passed Open WebUI text/image/persistence and the complete
-   LLM CLI suite, then was interrupted during Aider. Online-manual mode was
-   restored manually afterward.
-3. Perform the documented user-controlled boundary run with Wi-Fi/Ethernet off
-   or reviewed LuLu rules:
-   `bin/agent-lab offline verify --boundary-confirmed --full`.
-4. Keep the distinction between application configuration and a measured
-   zero-egress boundary explicit.
+The ignored `.agent-lab/results/offline-latest.json` must report status `pass`
+and boundary `user_attested_boundary_webui_probe_passed`. Restore networking after
+review. Only then rerun the fast release gate, record the final commit in
+decision 0010, and create `v0.1.0-rc.1`.
 
-An experiment using a Docker `--internal` network was rejected because Docker
-Desktop stopped forwarding the loopback browser port after the normal Compose
-network was disconnected. The unused experimental network was removed; no
-experimental code remains.
+## Verified host state
 
-### P8-T01: Promptfoo regression suites
+- Host: Mac17,3, Apple M5, 24 GiB unified memory, macOS 26.5.2
+- Ollama 0.32.1: Agent Lab per-user LaunchAgent, loopback-only, cloud disabled,
+  one loaded model maximum
+- Open WebUI 0.10.2: immutable OCI digest, loopback port 3000, durable named
+  volume
+- Active default profile: `online-manual`
+- Approved models: `qwen3.5:4b`, `qwen3.5:9b`, and `gemma4:12b`
+- Local RAG: pinned `all-MiniLM-L6-v2`, Chroma, hybrid retrieval, no reranker
+- Terminal clients: LLM CLI 0.31.1 with `llm-ollama` 0.16.1; Aider 0.86.2 on
+  uv-managed Python 3.12.13
+- Evaluation: Promptfoo 0.121.19; ShellCheck 0.11.0
 
-The subagent was stopped before it wrote Promptfoo configuration. Restart this
-task from its plan section. Existing chat, image, RAG, and search fixtures are
-ready to reuse.
+Generated results, secrets, model weights, caches, chats, vectors, logs,
+`.env`, `.agent-lab/`, and `.cursor/` remain outside Git.
 
-## Pending plan tasks
+## Post-MVP
 
-- P8-T01: Promptfoo regression suites
-- P8-T02: native hardware benchmark
-- P8-T03: full MVP acceptance matrix and qualification decision
-- P9-T01: final installation and first-run documentation
-- P9-T02: final operations/privacy/recovery documentation pass
-- P9-T03: manifest freeze and release-candidate gate
-
-## Verified state at pause
-
-- Ollama 0.32.1 is installed as the per-user managed LaunchAgent on
-  `127.0.0.1:11434` with cloud integration disabled.
-- Open WebUI 0.10.2 runs from the pinned OCI digest on
-  `http://127.0.0.1:3000` with durable named-volume data.
-- Active profile: `online-manual`.
-- Qualified model presentation: `qwen3.5:4b`, `qwen3.5:9b`, and `gemma4:12b`.
-- The local store also retains rejected MLX-tag artifacts as qualification
-  evidence; they are hidden from normal WebUI use.
-- Local RAG uses the bundled pinned `all-MiniLM-L6-v2` snapshot, Chroma, hybrid
-  retrieval, and no reranker.
-- Real DuckDuckGo search qualification passed both recorded cases.
-- Backup/restore passed with a disposable restored container, conversation, and
-  RAG vector verification.
-- `make test-static` passed; ShellCheck remains an explicit release prerequisite
-  and was skipped because it is not installed.
-
-## Host-only changes already made
-
-- Homebrew Ollama 0.32.1 and its managed per-user LaunchAgent
-- LLM CLI 0.31.1 plus `llm-ollama` 0.16.1 in the user uv environment
-- Aider 0.86.2 in a uv-managed Python 3.12.13 tool environment
-- Six Ollama artifacts retained locally (three approved standard artifacts and
-  three rejected MLX qualification artifacts)
-- Docker named volume `agent-lab-open-webui-data`
-
-Secrets, model weights, caches, chats, vectors, logs, results, `.env`, and
-`.cursor/` remain ignored and must not be committed.
+P10 in the local Cursor plan is a separate multi-backend phase covering direct
+MLX, llama.cpp, and optional LM Studio paths. It does not change the MVP release
+gate and must not be reported as implemented by the Ollama-only MVP work.

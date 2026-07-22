@@ -6,6 +6,11 @@ history, uploaded documents, and vectors, so store them like credentials.
 Ollama model weights and container images are excluded because their immutable
 identifiers make them reproducible.
 
+Before an upgrade, profile experiment, or risky recovery operation, confirm
+the stack is healthy and choose an encrypted destination outside the repository.
+Estimate available space from the Docker volume; backups are full snapshots,
+not incremental archives. Retention and secure deletion are operator policy.
+
 Create a consistent backup in an explicit location with enough free space:
 
 ```sh
@@ -17,6 +22,12 @@ restarts it on exit. Ollama remains available. The archive includes a manifest,
 per-file SHA-256 hashes, component version, profile, timestamp, inclusion list,
 and exclusions. A sidecar hash protects the outer archive.
 
+Immediately verify the sidecar and store both files together:
+
+```sh
+shasum -a 256 -c /path/to/agent-lab-backup-TIMESTAMP.tar.gz.sha256
+```
+
 Restore is non-destructive by default and creates a new Docker volume:
 
 ```sh
@@ -27,6 +38,12 @@ Use `--target-volume` to choose a new name and `--config-destination` to extract
 configuration into an existing empty directory. Restore rejects traversal,
 unexpected members, corrupt hashes, incompatible versions, existing volumes,
 nonempty config destinations, and the live volume name.
+
+Restoring the configuration can expose the original local administrator
+credentials. Restrict the destination before inspection, never restore into a
+shared directory, and do not publish manifests or directory listings that may
+reveal private filenames. Model weights must be recovered separately with the
+catalog-verified online pull procedure below.
 
 ## Guarded live recovery drill
 

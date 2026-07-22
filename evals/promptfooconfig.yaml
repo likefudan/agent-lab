@@ -1,0 +1,44 @@
+# yaml-language-server: $schema=https://promptfoo.dev/config-schema.json
+description: Agent Lab deterministic local-model regressions v1
+
+# Never publish results. Every target below is the Ollama loopback endpoint and
+# every assertion is deterministic; there is no hosted or model-graded judge.
+sharing: false
+env:
+  OLLAMA_BASE_URL: http://127.0.0.1:11434
+  PROMPTFOO_DISABLE_TELEMETRY: "1"
+  PROMPTFOO_DISABLE_SHARING: "1"
+  PROMPTFOO_DISABLE_REMOTE_GENERATION: "1"
+
+prompts:
+  - id: agent-lab-regression-prompt
+    raw: "{{prompt}}"
+
+providers:
+  - id: ollama:chat:qwen3.5:4b
+    label: qwen-4b
+    config: &deterministic_text
+      temperature: 0
+      seed: 42
+      num_ctx: 4096
+      num_predict: 512
+      think: false
+      passthrough:
+        keep_alive: 0
+  - id: ollama:chat:qwen3.5:9b
+    label: qwen-9b
+    config: *deterministic_text
+  - id: ollama:chat:gemma4:12b
+    label: gemma-12b
+    config: *deterministic_text
+
+defaultTest:
+  metadata:
+    fixture_version: agent-lab-regressions-v1
+    evaluator: deterministic-local
+
+tests: file://fixtures/regression-tests.yaml
+
+evaluateOptions:
+  maxConcurrency: 1
+  showProgressBar: false

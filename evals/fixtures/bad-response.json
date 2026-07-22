@@ -1,0 +1,12 @@
+[
+  {
+    "description": "deliberately bad response proves deterministic failure",
+    "providerOutput": "THIS RESPONSE MUST FAIL THE AGENT-LAB-OK ASSERTION",
+    "assert": [
+      {
+        "type": "equals",
+        "value": "AGENT-LAB-OK"
+      }
+    ]
+  }
+]
