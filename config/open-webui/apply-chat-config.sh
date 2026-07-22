@@ -3,8 +3,8 @@ set -euo pipefail
 
 readonly ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 readonly WEBUI_URL="${OPEN_WEBUI_URL:-http://127.0.0.1:3000}"
-readonly CHAT_MAX_TOKENS=4096
-readonly CHAT_CONTEXT_TOKENS=8192
+readonly CHAT_MAX_TOKENS=16384
+readonly CHAT_CONTEXT_TOKENS=32768
 
 fail() {
   printf 'FAIL: %s\n' "$1" >&2

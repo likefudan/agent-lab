@@ -24,8 +24,8 @@ config=$(curl --fail --silent --show-error --max-time 30 \
   -H "Authorization: Bearer ${token}" "${WEBUI_URL}/api/v1/configs/models")
 jq -e '.DEFAULT_MODEL_PARAMS.think == false and
   .DEFAULT_MODEL_PARAMS.temperature == 0 and
-  .DEFAULT_MODEL_PARAMS.num_ctx == 8192 and
-  .DEFAULT_MODEL_PARAMS.max_tokens == 4096 and
+  .DEFAULT_MODEL_PARAMS.num_ctx == 32768 and
+  .DEFAULT_MODEL_PARAMS.max_tokens == 16384 and
   .DEFAULT_MODEL_PARAMS.keep_alive == "5m"' <<<"$config" >/dev/null ||
   fail 'main-chat defaults do not match the long-response contract'
 
@@ -35,4 +35,4 @@ task_model=$(curl --fail --silent --show-error --max-time 30 \
 jq -e '.params.max_tokens == 64 and .params.think == false and .params.format == "json"' \
   <<<"$task_model" >/dev/null || fail 'main-chat configuration changed the task-model cap'
 
-printf '%s\n' 'PASS: main chat has 4,096 output tokens in an 8,192-token context while tasks remain capped at 64'
+printf '%s\n' 'PASS: main chat has 16,384 output tokens in a 32,768-token context while tasks remain capped at 64'

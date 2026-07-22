@@ -63,8 +63,8 @@ WebUI data volume:
 config/open-webui/apply-chat-config.sh
 ```
 
-Normal Qwen and Gemma answers receive up to 4,096 output tokens within an
-8,192-token context. The task preset below remains capped at 64 tokens in its
+Normal Qwen and Gemma answers receive up to 16,384 output tokens within a
+32,768-token context. The task preset below remains capped at 64 tokens in its
 separate 4,096-token context, so raising the chat budget cannot reintroduce
 runaway title or tag generation.
 

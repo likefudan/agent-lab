@@ -74,8 +74,8 @@ config/open-webui/apply-profile.sh online-manual
 bin/agent-lab health
 ```
 
-The chat configuration gives normal answers a 4,096-token output budget within
-an 8,192-token context. The
+The chat configuration gives normal answers a 16,384-token output budget within
+a 32,768-token context. The
 separate task configuration keeps title, follow-up, tag, and prompt-autocomplete
 features enabled while routing them through a Qwen 4B preset with thinking
 disabled, JSON-constrained output, and a strict 64-token output cap. This
