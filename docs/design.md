@@ -17,9 +17,9 @@ this project.
 
 - Apple Silicon, initially an M5 MacBook Air
 - 24 GB unified memory
-- Ollama inference running natively on macOS for the MVP, using the local
-  artifact and backend that pass the required modality tests
-- Direct MLX-VLM and Hugging Face integration deferred to a later phase
+- Ollama retained as the stable local fallback and model-lifecycle baseline
+- MLX-LM for faster native text/chat inference and MLX-VLM for Gemma image
+  understanding, with only one large MLX model active at a time
 - Open WebUI and optional supporting services running in containers
 
 ## Design principles
@@ -43,15 +43,15 @@ this project.
 | --- | --- | --- | --- |
 | Web chat, conversations, tools, RAG, citations, and web search | [Open WebUI](https://github.com/open-webui/open-webui) | Third-party source-available software with branding conditions | Run the pinned container without forking or rebranding it |
 | MVP inference, model installation, model lifecycle, and OpenAI-compatible API | [Ollama](https://github.com/ollama/ollama) | Open source, MIT | Run natively on macOS and restrict the server to qualified local artifacts; Ollama selects the compatible native backend |
-| Later direct Apple Silicon inference | [MLX-VLM](https://github.com/Blaizzy/mlx-vlm) and [MLX](https://github.com/ml-explore/mlx) | Open source; deferred | Add only for Hugging Face models or low-level controls that Ollama cannot provide |
+| Native Apple Silicon text inference | [MLX-LM](https://github.com/ml-explore/mlx-lm) and [MLX](https://github.com/ml-explore/mlx) | Open source, MIT | Serve the pinned Qwen 9B MLX snapshot through a loopback OpenAI-compatible endpoint |
+| Native Apple Silicon multimodal inference | [MLX-VLM](https://github.com/Blaizzy/mlx-vlm) and [MLX](https://github.com/ml-explore/mlx) | Open source, MIT | Serve the pinned Gemma 12B MLX snapshot with image input through a separate loopback endpoint |
 | General terminal chat, tools, and image input | [LLM CLI](https://github.com/simonw/llm) | Open source, Apache-2.0 | Connect directly to the inference endpoint; keep Open WebUI-specific RAG integration out of the MVP |
 | Repository-aware coding | [Aider](https://github.com/Aider-AI/aider) | Open source, Apache-2.0 | Connect directly to the local OpenAI-compatible inference endpoint |
 | Default vector storage, hybrid retrieval, and reranking | Open WebUI RAG with Chroma | Third-party functionality | Use Open WebUI's implementation and local models rather than build a RAG service |
 | Advanced document extraction and OCR | [Docling](https://github.com/docling-project/docling) or an Open WebUI-supported extractor | Open source; optional | Add only when the built-in extractor is insufficient |
 | Web search | Open WebUI with DuckDuckGo | Third-party functionality | Use as the initial zero-configuration online search path |
 | Self-hosted search aggregation | [SearXNG](https://github.com/searxng/searxng) | Open source; optional | Add as a container when provider control is worth the extra service |
-| MVP model registry and local model store | Ollama model library and `~/.ollama/models` | Third-party functionality | Approve artifacts only for roles whose required capabilities they pass, and record their immutable digests |
-| Later model and artifact download cache | [Hugging Face Hub](https://github.com/huggingface/huggingface_hub) | Open source client and hosted model registry; deferred | Add the standard Hugging Face cache when direct MLX-VLM support is introduced |
+| Model registries and local stores | Ollama model library plus [Hugging Face Hub](https://github.com/huggingface/huggingface_hub) | Third-party functionality | Pin Ollama manifests and Hugging Face revisions independently; verify every MLX snapshot file before offline use |
 | Prompt and application regression testing | [Promptfoo](https://github.com/promptfoo/promptfoo) | Open source, MIT | Run Agent Lab-owned acceptance cases against the local API |
 | Standard multimodal evaluation | [VLMEvalKit](https://github.com/open-compass/VLMEvalKit) | Open source, Apache-2.0 | Use for broader image-understanding comparisons when needed |
 | Outbound connection control | [LuLu](https://github.com/objective-see/LuLu) or macOS `pf` | Open source third-party firewall or operating-system facility | Provide strict offline verification; configuration remains an explicit user action |
@@ -71,10 +71,9 @@ Agent Lab owns only the integration-specific layer:
 
 - A version-pinned component manifest and installation documentation
 - Container configuration for Open WebUI and optional services
-- Native Ollama configuration and later, if needed, MLX-VLM launch
-  configuration
-- A model catalog containing approved Ollama tags, immutable digests, later
-  Hugging Face revisions, and default inference parameters
+- Native Ollama, MLX-LM, and MLX-VLM launch configuration
+- Model catalogs containing approved Ollama tags, immutable digests, pinned
+  Hugging Face revisions, per-file hashes, and default inference parameters
 - Online and offline configuration profiles
 - Setup, start, stop, status, health-check, backup, and offline-verification
   scripts
@@ -84,10 +83,11 @@ Agent Lab owns only the integration-specific layer:
 - Hardware-specific benchmark results and default model selection
 - Architecture, operational, privacy, and recovery documentation
 
-Agent Lab will not initially implement a web UI, inference engine, model
+Agent Lab does not implement a web UI, inference engine, model
 gateway, model supervisor, RAG engine, vector database, document parser, search
-broker, page fetcher, coding agent, or general-purpose LLM CLI. It will also not
-operate two inference runtimes during the MVP.
+broker, page fetcher, coding agent, or general-purpose LLM CLI. Its small MLX
+lifecycle wrapper only enforces exclusive residency and delegates inference to
+the two upstream servers.
 
 ## Initial models
 
@@ -96,6 +96,11 @@ operate two inference runtimes during the MVP.
 | `qwen-9b` | `qwen3.5:9b` | Text chat, coding, and tools | Chat |
 | `qwen-4b` | `qwen3.5:4b` | Fast text chat, lightweight coding, and tools | Fast |
 | `gemma-12b` | `gemma4:12b` | Multimodal chat, coding, vision, and tools | Coding and vision |
+
+| MLX alias | Pinned Hugging Face snapshot | Runtime | Role |
+| --- | --- | --- | --- |
+| `qwen-9b-mlx` | `mlx-community/Qwen3.5-9B-MLX-4bit@938d8919…` | MLX-LM | Primary native chat and coding |
+| `gemma-12b-mlx` | `mlx-community/gemma-4-12B-it-4bit@73bcf090…` | MLX-VLM | Primary native multimodal chat |
 
 P0-T03 qualified all three standard artifacts for their declared roles. Both
 Qwen artifacts passed deterministic text, code-repair, tool-call, and GPU
@@ -117,27 +122,26 @@ approved standard artifact's immutable manifest digest, expected blobs,
 license, disk size, and minimum compatible Ollama version. The MVP also sets
 `OLLAMA_MAX_LOADED_MODELS=1` and disables Ollama cloud features.
 
-In a later compatibility phase, Agent Lab may add corresponding MLX-community
-repositories through direct MLX-VLM and pin their exact Hugging Face revisions.
-Ollama and Hugging Face artifacts are separate copies and are not assumed to
-share storage. This deferred direct MLX-VLM path does not reinstate the rejected
-Ollama `-mlx` artifacts.
+The direct MLX path uses `mlx-community/Qwen3.5-9B-MLX-4bit` at revision
+`938d8919…` for MLX-LM and `mlx-community/gemma-4-12B-it-4bit` at revision
+`73bcf090…` for MLX-VLM. Ollama and Hugging Face artifacts remain separate
+copies and do not share storage. These direct, file-verified snapshots do not
+reinstate the rejected Ollama `-mlx` artifacts.
 
 ## Inference runtime decision
 
 | Runtime | Decision | Reason |
 | --- | --- | --- |
-| Native Ollama | MVP | One open-source service supplies model pulls, lifecycle management, local inference, and OpenAI-compatible APIs; each artifact is exposed only for the text, code, tools, or image capabilities it passed |
-| MLX-VLM server | Later compatibility phase | Provides direct Hugging Face access and lower-level multimodal controls when Ollama lacks a model or feature |
-| `mlx_lm.server` | Not selected for the unified endpoint | It is an open-source MIT server from Apple's MLX project, but its documented server is for text generation rather than image input |
+| Native Ollama | Retained fallback | Supplies the stable local baseline, existing CLI integrations, and independently qualified Ollama artifacts |
+| `mlx_lm.server` | Primary native text backend | Qwen 9B passed direct and Open WebUI-routed text generation; the endpoint is loopback-only and thinking is disabled by default |
+| `mlx_vlm.server` | Primary native multimodal backend | Gemma 12B passed exact image-text extraction and exposes continuous batching plus a 32K effective context limit |
 | llama.cpp server | Benchmark fallback | Mature Metal and multimodal GGUF runtime, but it requires a separate artifact and lifecycle path from the approved Ollama artifacts |
 
-`mlx_lm.server` remains valuable for a future dedicated text-only model,
-especially if a coding benchmark shows an advantage. It is not the initial
-server because Agent Lab requires chat, coding, and image understanding through
-the same endpoint. Running MLX-LM for text and MLX-VLM for images would add two
-Python servers and duplicate lifecycle coordination that Ollama already
-provides.
+MLX-LM and MLX-VLM remain separate because the former is optimized for text and
+the latter owns image preprocessing. `agent-lab mlx start chat|vision` stops the
+other launchd service before loading the requested model. This narrow lifecycle
+policy protects the 24 GB unified-memory budget without introducing a gateway
+or inference implementation.
 
 ## System architecture
 
@@ -163,19 +167,20 @@ flowchart TB
         end
 
         subgraph Native["Native macOS inference"]
-            Ollama["Native Ollama<br/>MVP · third-party open source"]
+            Ollama["Native Ollama<br/>fallback · third-party open source"]
             Active["One active Ollama model"]
             Qwen9["qwen3.5:9b<br/>default chat · text/code/tools"]
             Qwen4["qwen3.5:4b<br/>default fast · text/code/tools"]
             Gemma["gemma4:12b<br/>default coding + vision · multimodal/tools"]
-
-            MLXVLM["MLX-VLM server<br/>later · third-party open source"]
+            MLXSwitch["MLX lifecycle switch<br/>one active model · original"]
+            MLXLM["MLX-LM :8081<br/>Qwen 9B · text/code"]
+            MLXVLM["MLX-VLM :8082<br/>Gemma 12B · multimodal"]
         end
 
         subgraph Storage["Local storage"]
             WebData[("Open WebUI data volume<br/>chats · settings · documents · vectors")]
             OllamaStore[("Ollama model store<br/>MVP weights and manifests")]
-            HFCache[("Hugging Face cache<br/>later direct MLX weights")]
+            HFCache[("Hugging Face cache<br/>revision-pinned MLX weights")]
             Config[("Agent Lab configuration<br/>original")]
             Evals[("Acceptance tests and results<br/>original")]
         end
@@ -184,6 +189,8 @@ flowchart TB
         LLMCLI -->|"Chat · CLI tools · images via Gemma"| Ollama
         Aider -->|"Coding requests"| Ollama
         WebUI -->|"OpenAI-compatible API"| Ollama
+        WebUI -->|"OpenAI-compatible API"| MLXLM
+        WebUI -->|"OpenAI-compatible API"| MLXVLM
 
         WebUI --> RAG
         RAG --> WebData
@@ -199,14 +206,17 @@ flowchart TB
         Qwen4 --> OllamaStore
         Gemma --> OllamaStore
 
-        WebUI -.->|"Later additional connection"| MLXVLM
-        LLMCLI -.->|"Later optional endpoint"| MLXVLM
-        Aider -.->|"Later optional endpoint"| MLXVLM
-        MLXVLM -.-> HFCache
+        LLMCLI -.->|"Optional MLX text endpoint"| MLXLM
+        Aider -.->|"Optional MLX coding endpoint"| MLXLM
+        MLXSwitch --> MLXLM
+        MLXSwitch --> MLXVLM
+        MLXLM --> HFCache
+        MLXVLM --> HFCache
 
         Setup --> Config
         Config --> WebUI
         Config --> Ollama
+        Config --> MLXSwitch
         Setup --> Evals
     end
 
@@ -216,19 +226,11 @@ flowchart TB
     SearXNG -.->|"Online modes only"| Internet
 ```
 
-The solid lines show the MVP path through native Ollama. All three model nodes
-are approved for their labeled roles: Qwen 9B is the chat default, Qwen 4B is
-the fast default, and Gemma 12B is the coding and vision default. Only Gemma is
-advertised for image input because the Qwen artifacts failed the fixed OCR
-qualification. Dotted lines denote optional services, later-phase direct
-MLX-VLM access, or network access. Ollama owns model installation, storage,
-loading, unloading, backend selection, inference, and the local API. Agent Lab
-does not place a custom gateway or supervisor in front of it.
-
-When direct Hugging Face access is added later, Open WebUI may expose Ollama and
-MLX-VLM as two separate model connections. LLM CLI and Aider select the desired
-endpoint explicitly. This avoids introducing a gateway merely to combine two
-already compatible APIs.
+Open WebUI exposes Ollama plus two MLX OpenAI-compatible connections. Friendly
+presets identify the Qwen MLX chat model and Gemma MLX vision model. Only one
+MLX server is active at a time; selecting the other role is an explicit local
+lifecycle operation. Ollama remains independently available as the qualified
+fallback. No custom gateway sits between clients and any inference server.
 
 ## Deployment
 
@@ -248,8 +250,11 @@ Ollama-provided web search. Model retention is tuned with
 remains bound to loopback unless a later requirement explicitly authorizes LAN
 access.
 
-Direct MLX-VLM is a later native service with its own pinned Python environment
-and Hugging Face cache. It is not installed or started in the MVP.
+MLX-LM and MLX-VLM share one pinned Python 3.12 environment but listen on
+separate loopback ports. Their launch configurations set `HF_HUB_OFFLINE=1`,
+load immutable local snapshot paths, and cap normal output at 16,384 tokens.
+MLX-VLM additionally caps its effective KV context at 32,768 tokens. The
+lifecycle command never keeps both large MLX models active simultaneously.
 
 ### Containers
 
@@ -269,9 +274,8 @@ evaluated separately if licensing or resource usage becomes a concern.
 Open WebUI owns the ChatGPT-style browser experience, users, conversation
 history, file uploads, model presentation, tool presentation, RAG, citations,
 and web search. Agent Lab configures its connection to the local inference
-endpoint but does not modify or fork the UI. Ollama is the only inference
-connection required in the MVP; MLX-VLM appears as a second connection only in
-the later Hugging Face compatibility phase.
+endpoint but does not modify or fork the UI. Ollama, MLX-LM, and MLX-VLM appear
+as separate local providers; Agent Lab adds friendly Qwen and Gemma MLX presets.
 
 ### General CLI
 
@@ -302,13 +306,13 @@ rendering implementation.
 ### Coding
 
 Aider owns the repository map, prompt construction, edit formats, diffs, Git
-integration, and coding loop. It connects to Ollama's local OpenAI-compatible
-endpoint in the MVP. Agent Lab supplies tested model settings and compatibility
-configuration but does not create a competing coding agent.
+integration, and coding loop. It can connect to Ollama or the active MLX-LM
+OpenAI-compatible endpoint. Agent Lab supplies tested model settings and
+compatibility configuration but does not create a competing coding agent.
 
 ## Model lifecycle
 
-The MVP relies on Ollama's existing model manager:
+The Ollama fallback relies on Ollama's existing model manager:
 
 1. The approved catalog maps the three standard artifacts to their qualified
    capabilities and role defaults, with immutable manifest digests.
@@ -319,7 +323,18 @@ The MVP relies on Ollama's existing model manager:
    according to its memory and keep-alive configuration.
 5. `OLLAMA_MAX_LOADED_MODELS=1` prevents concurrent large-model residency.
 6. `ollama ps` and the local API expose the currently loaded model and runtime
-   status.
+status.
+
+The direct MLX lifecycle is intentionally smaller:
+
+1. `config/mlx/models.json` pins the repository revision, every expected file
+   size, and every SHA-256 digest.
+2. `agent-lab mlx models download ALIAS` downloads only the pinned revision and
+   verifies the complete snapshot.
+3. `agent-lab mlx start chat|vision` stops the other managed launchd service,
+   then starts the selected upstream server from the isolated environment.
+4. Launch environments force Hugging Face offline mode, so inference cannot
+   update or fetch weights implicitly.
 
 All clients are configured from the approved model catalog. Offline mode
 disables Ollama cloud features and external network access, so a missing model
@@ -328,9 +343,9 @@ request.
 
 Agent Lab tests memory release, failed loads, concurrent requests, streaming
 interruption, crash recovery, and digest reproducibility. It does not implement
-a competing model manager. MLX-VLM and Hugging Face are added later only to
-expand model compatibility, not to replace Ollama lifecycle management for
-models Ollama already serves well.
+a competing model manager. The MLX wrapper verifies Hugging Face snapshots and
+enforces one-active-backend switching; upstream MLX servers retain ownership of
+model loading, inference, and their APIs.
 
 ## Retrieval-augmented generation
 
@@ -368,8 +383,8 @@ Agent Lab defines three configuration profiles:
 
 - **Offline:** Web search and Ollama cloud features are disabled, remote tools
   are unavailable, model pulls are prohibited, and outbound connections are
-  blocked or verified at the operating-system boundary. In the later direct
-  MLX-VLM phase, Hugging Face libraries are also forced into offline behavior.
+  blocked or verified at the operating-system boundary. Direct MLX launch jobs
+  force Hugging Face libraries into offline behavior.
 - **Online/manual:** Search is available but must be explicitly enabled for the
   request. This is the default online profile.
 - **Online/automatic:** Open WebUI may expose search tools for the model to call

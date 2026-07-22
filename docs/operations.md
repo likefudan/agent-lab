@@ -55,6 +55,58 @@ Model pulls are online maintenance actions, are blocked by the offline profile,
 and must be performed one alias at a time. A missing alias fails locally; there
 is no cloud fallback.
 
+### Native MLX backends
+
+Use MLX-LM for normal chat/coding and switch to MLX-VLM before sending an image
+to Gemma:
+
+```sh
+bin/agent-lab mlx start chat
+bin/agent-lab mlx health
+
+bin/agent-lab mlx start vision
+bin/agent-lab mlx health
+```
+
+Starting one role stops the other. This is intentional: Qwen 9B and Gemma 12B
+must not remain resident together on the 24 GB target. Open WebUI keeps both
+friendly presets visible, but a request to the inactive preset fails locally
+until its backend is selected. The endpoints are:
+
+| Role | Open WebUI preset | Local endpoint |
+| --- | --- | --- |
+| Chat and code | `Agent Lab MLX Qwen 9B` | `http://127.0.0.1:8081/v1` |
+| Images and multimodal chat | `Agent Lab MLX Gemma 12B Vision` | `http://127.0.0.1:8082/v1` |
+
+Inspect state and logs without changing models:
+
+```sh
+bin/agent-lab mlx status
+bin/agent-lab mlx logs chat
+bin/agent-lab mlx logs vision
+```
+
+The model snapshots are pinned separately from Ollama. `models verify` performs
+a complete SHA-256 pass over approximately 12.7 GB and can take several
+seconds; startup uses the quicker size/completeness check after installation.
+
+```sh
+bin/agent-lab mlx models list
+bin/agent-lab mlx models verify
+```
+
+After package, model, or launch-setting changes, run the hardware integration
+test. It checks Qwen text generation, exclusive switching, and Gemma image
+reading, then restores the chat backend:
+
+```sh
+make test-mlx
+```
+
+Downloads require an online profile. Inference launch jobs force
+`HF_HUB_OFFLINE=1`, so a missing or drifted snapshot fails instead of fetching
+anything implicitly.
+
 Normal chat and auxiliary tasks have deliberately separate output budgets.
 Apply the normal-chat defaults after first start and after restoring an older
 WebUI data volume:
@@ -79,8 +131,10 @@ config/open-webui/apply-task-config.sh
 ```
 
 The preset reuses `qwen3.5:4b`, disables thinking, constrains responses to JSON,
-and enforces a 64-token output limit. It does not load a second model, and all
-four features remain enabled. Without this preset, the pinned Open WebUI/Ollama
+and enforces a 64-token output limit. All four features remain enabled. When a
+main answer uses MLX, this small Ollama task model may coexist briefly with the
+active MLX model; Ollama still limits its own residency to one model. Without
+this preset, the pinned Open WebUI/Ollama
 combination can lose the task output cap, consume the entire 4,096-token
 context, return unparseable metadata, and occupy the single local runner for
 several minutes.
@@ -202,13 +256,15 @@ confirmation and is documented in [installation](installation.md).
    its persistent data as suspect. Follow [corrupted WebUI data](recovery.md#corrupted-open-webui-data)
    rather than deleting or reinitializing the live volume.
 
-### Port 11434 or 3000 is already in use
+### Port 11434, 3000, 8081, or 8082 is already in use
 
 1. **Read-only:** identify the owning process and, for a container, its name.
 
    ```sh
    lsof -nP -iTCP@127.0.0.1:11434 -sTCP:LISTEN
    lsof -nP -iTCP@127.0.0.1:3000 -sTCP:LISTEN
+   lsof -nP -iTCP@127.0.0.1:8081 -sTCP:LISTEN
+   lsof -nP -iTCP@127.0.0.1:8082 -sTCP:LISTEN
    docker ps --format 'table {{.Names}}\t{{.Ports}}'
    ```
 

@@ -1,7 +1,9 @@
 # Agent Lab
 
 Agent Lab is an offline-first AI workspace for an Apple Silicon Mac. It combines
-native [Ollama](https://github.com/ollama/ollama), the upstream
+native [MLX-LM](https://github.com/ml-explore/mlx-lm),
+[MLX-VLM](https://github.com/Blaizzy/mlx-vlm),
+[Ollama](https://github.com/ollama/ollama), the upstream
 [Open WebUI](https://github.com/open-webui/open-webui),
 [LLM CLI](https://llm.datasette.io/), and
 [Aider](https://github.com/Aider-AI/aider) behind pinned, tested local
@@ -17,7 +19,9 @@ web search is the one intentional path that sends queries to third parties.
 | Role | Local component |
 | --- | --- |
 | Web chat, history, RAG, citations, and optional search | Open WebUI `0.10.2` |
-| Native inference and model storage | Ollama `0.32.1` |
+| Primary native text inference | MLX-LM `0.31.3` with Qwen 3.5 9B 4-bit |
+| Primary native multimodal inference | MLX-VLM `0.6.6` with Gemma 4 12B IT 4-bit |
+| Stable fallback and Ollama model storage | Ollama `0.32.1` |
 | Default chat | `qwen3.5:9b` (`qwen-9b`) |
 | Fast chat | `qwen3.5:4b` (`qwen-4b`) |
 | Coding and image understanding | `gemma4:12b` (`gemma-12b`) |
@@ -44,9 +48,17 @@ bin/agent-lab models pull qwen-4b
 bin/agent-lab models pull qwen-9b
 bin/agent-lab models pull gemma-12b
 
+# Native MLX backends and revision-pinned Hugging Face snapshots.
+bin/agent-lab mlx setup
+bin/agent-lab mlx models download qwen-9b-mlx
+bin/agent-lab mlx models download gemma-12b-mlx
+bin/agent-lab mlx models verify
+bin/agent-lab mlx start chat
+
 config/open-webui/apply-rag-config.sh
 config/open-webui/apply-chat-config.sh
 config/open-webui/apply-task-config.sh
+config/open-webui/apply-mlx-config.sh
 config/open-webui/apply-profile.sh online-manual
 bin/agent-lab health
 ```
@@ -63,6 +75,11 @@ bin/agent-lab start
 bin/agent-lab status
 bin/agent-lab health
 bin/agent-lab stop
+
+# Switch between the mutually exclusive MLX text and vision services.
+bin/agent-lab mlx start chat
+bin/agent-lab mlx start vision
+bin/agent-lab mlx status
 ```
 
 ## Online and offline modes
@@ -87,6 +104,7 @@ for the verification protocol and the precise scope of this claim.
 
 Open WebUI chats, uploads, vectors, accounts, and settings live in the Docker
 volume `agent-lab-open-webui-data`. Ollama weights live in `~/.ollama/models`.
+Pinned MLX weights live in `~/.cache/huggingface/hub`.
 Private configuration, client state, results, and logs live in the ignored
 `.env`, `.agent-lab/`, and `~/.agent-lab/` paths described in the
 [privacy guide](docs/privacy.md#local-data-locations).
@@ -117,8 +135,9 @@ like credentials. See [backup and recovery](docs/recovery.md).
   unavailable offline.
 - Open WebUI, LLM CLI, and Aider have separate histories; CLI clients do not
   share Open WebUI knowledge collections.
-- Direct MLX-VLM and Hugging Face model support are deferred. The MVP has one
-  Ollama backend and does not expose arbitrary Hugging Face models.
+- MLX-LM and MLX-VLM are limited to the two revision-pinned, file-verified
+  snapshots. Only one MLX backend is active at a time; arbitrary Hugging Face
+  models are not exposed.
 
 Agent Lab is integration and policy code, not a new UI, inference engine, RAG
 engine, or coding agent. The exact third-party/original boundary and license

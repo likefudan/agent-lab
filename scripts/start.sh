@@ -214,3 +214,11 @@ fi
 compose_command up --detach --no-build open-webui
 wait_for_webui_health
 info 'Open WebUI is ready at http://127.0.0.1:3000'
+
+if [ -x "$REPO_ROOT/.agent-lab/mlx/venv/bin/mlx_lm.server" ] &&
+   "$REPO_ROOT/.agent-lab/mlx/venv/bin/python" "$REPO_ROOT/scripts/mlx-models.py" \
+     verify --quick qwen-9b-mlx >/dev/null 2>&1; then
+    "$REPO_ROOT/scripts/mlx.sh" start chat
+else
+    warn "MLX chat backend is not prepared; run 'agent-lab mlx setup' and download qwen-9b-mlx"
+fi

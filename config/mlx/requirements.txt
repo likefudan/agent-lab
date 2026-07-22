@@ -1,0 +1,4 @@
+# One isolated Python 3.12 environment serves both native MLX backends.
+mlx-lm==0.31.3
+mlx-vlm==0.6.6
+huggingface-hub[hf_xet]==1.24.0

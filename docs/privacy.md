@@ -3,13 +3,15 @@
 Local prompts, chats, uploads, vectors, and model inference remain on this Mac
 in normal Agent Lab operation. Open WebUI stores application data in its named
 Docker volume; Ollama stores approved model artifacts under its user model
-store. LLM CLI and Aider maintain separate ignored histories.
+store; direct MLX snapshots live in the Hugging Face cache. LLM CLI and Aider
+maintain separate ignored histories.
 
 The offline profile recreates Open WebUI with `OFFLINE_MODE=true`, disables
 search and version/update checks, prevents embedding/reranker downloads, blocks
 Agent Lab model pulls, disables remote tools and telemetry, and presents only
 the three approved local Ollama artifacts. Ollama is loopback-only with its
-cloud integration disabled.
+cloud integration disabled. MLX launch jobs are also loopback-only and set
+`HF_HUB_OFFLINE=1` before loading an immutable local snapshot path.
 
 ## Local data locations
 
@@ -18,8 +20,10 @@ cloud integration disabled.
 | Open WebUI accounts, password hashes, chats, uploads, settings, Chroma vectors, and embedding cache | Docker volume `agent-lab-open-webui-data`, mounted at `/app/backend/data` | Included in `agent-lab backup` |
 | Open WebUI secret and generated local administrator credentials | Repository `.env` (ignored, mode 600) | Included in backup configuration |
 | Ollama model manifests and blobs | `~/.ollama/models` unless `OLLAMA_MODELS` overrides it | Excluded; reproduced from the digest-pinned catalog |
+| MLX model snapshots | `~/.cache/huggingface/hub/models--mlx-community--*` | Excluded; reproduced from the revision- and file-digest-pinned MLX catalog |
 | Selected profile and test/benchmark evidence | Repository `.agent-lab/` (ignored) | Excluded; versioned profile definitions are included, while generated evidence should be archived separately when required |
 | Managed Ollama logs | `~/.agent-lab/logs/` | Excluded |
+| Managed MLX environment, launch files, and logs | Repository `.agent-lab/mlx/` | Excluded; recreated from pinned requirements and templates |
 | LLM CLI state | Repository `.agent-lab/llm/` when configured as documented | Private; separate from WebUI backup |
 | Aider history | Repository `.agent-lab/aider/` and target-repository Aider files | Private; separate from WebUI backup |
 

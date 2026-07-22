@@ -21,6 +21,7 @@ Commands:
   backup             Back up non-reproducible local data
   restore            Restore a validated backup
   benchmark          Run local model benchmarks
+  mlx                Manage native MLX-LM and MLX-VLM backends
   offline verify     Verify core workflows without network access
   help               Show this help
 EOF
@@ -59,7 +60,7 @@ case "$command_name" in
     [[ $# -eq 0 ]] || fail_usage 'help accepts no arguments'
     usage
     ;;
-  doctor|setup|start|stop|status|health|models|backup|restore|benchmark)
+  doctor|setup|start|stop|status|health|models|backup|restore|benchmark|mlx)
     dispatch "${REPO_ROOT}/scripts/${command_name}.sh" "$@"
     ;;
   offline)

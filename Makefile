@@ -1,6 +1,6 @@
 SHELL := /usr/bin/env bash
 
-.PHONY: validate test-static test-smoke test-integration test-offline test
+.PHONY: validate test-static test-smoke test-integration test-mlx test-offline test
 
 validate:
 	@bash scripts/validate-config.sh
@@ -25,6 +25,13 @@ test-integration:
 		exit 69; \
 	fi
 	@tests/integration/run.sh
+
+test-mlx:
+	@if [[ ! -x tests/integration/test-mlx.sh ]]; then \
+		echo "test-mlx is not implemented yet: tests/integration/test-mlx.sh is missing" >&2; \
+		exit 69; \
+	fi
+	@tests/integration/test-mlx.sh
 
 test-offline:
 	@if [[ ! -x tests/integration/test-offline.sh ]]; then \

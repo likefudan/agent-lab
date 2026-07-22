@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>ai.agent-lab.mlx-lm</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>__AGENT_LAB_ROOT__/.agent-lab/mlx/venv/bin/mlx_lm.server</string>
+    <string>--model</string>
+    <string>__MODEL_PATH__</string>
+    <string>--host</string>
+    <string>127.0.0.1</string>
+    <string>--port</string>
+    <string>8081</string>
+    <string>--max-tokens</string>
+    <string>16384</string>
+    <string>--chat-template-args</string>
+    <string>{"enable_thinking":false}</string>
+    <string>--log-level</string>
+    <string>INFO</string>
+  </array>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>HF_HUB_OFFLINE</key>
+    <string>1</string>
+    <key>HF_HOME</key>
+    <string>__AGENT_LAB_HOME__/.cache/huggingface</string>
+    <key>TOKENIZERS_PARALLELISM</key>
+    <string>false</string>
+  </dict>
+  <key>KeepAlive</key>
+  <true/>
+  <key>ProcessType</key>
+  <string>Interactive</string>
+  <key>ThrottleInterval</key>
+  <integer>10</integer>
+  <key>StandardOutPath</key>
+  <string>__AGENT_LAB_ROOT__/.agent-lab/mlx/logs/mlx-lm.stdout.log</string>
+  <key>StandardErrorPath</key>
+  <string>__AGENT_LAB_ROOT__/.agent-lab/mlx/logs/mlx-lm.stderr.log</string>
+</dict>
+</plist>

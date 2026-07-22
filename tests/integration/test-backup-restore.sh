@@ -46,8 +46,8 @@ TEMP_ROOT=$(mktemp -d "${TMPDIR:-/tmp}/agent-lab-backup-test.XXXXXX")
 backup_dir="${TEMP_ROOT}/backup with spaces"
 config_dir="${TEMP_ROOT}/restored config"
 mkdir -p "$backup_dir" "$config_dir"
-admin_email=$(sed -n 's/^WEBUI_ADMIN_EMAIL=//p' "${ROOT}/.env")
-admin_password=$(sed -n 's/^WEBUI_ADMIN_PASSWORD=//p' "${ROOT}/.env")
+admin_email=${OPEN_WEBUI_ADMIN_EMAIL:-$(sed -n 's/^WEBUI_ADMIN_EMAIL=//p' "${ROOT}/.env")}
+admin_password=${OPEN_WEBUI_ADMIN_PASSWORD:-$(sed -n 's/^WEBUI_ADMIN_PASSWORD=//p' "${ROOT}/.env")}
 webui_secret=$(sed -n 's/^WEBUI_SECRET_KEY=//p' "${ROOT}/.env")
 
 sign_in http://127.0.0.1:3000

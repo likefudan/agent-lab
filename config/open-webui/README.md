@@ -25,7 +25,13 @@ presets:
 config/open-webui/apply-rag-config.sh
 config/open-webui/apply-chat-config.sh
 config/open-webui/apply-task-config.sh
+config/open-webui/apply-mlx-config.sh
 ```
+
+The MLX configuration preserves unrelated OpenAI-compatible connections, adds
+the two loopback host bridges, and creates friendly Qwen/Gemma model presets.
+Use `bin/agent-lab mlx start chat|vision` to choose which large MLX model is
+actually resident.
 
 Authentication settings are seeded into Open WebUI's database on first start.
 The named `agent-lab-open-webui-data` volume contains the complete application

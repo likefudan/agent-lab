@@ -41,6 +41,21 @@ arch=$(uname -m 2>/dev/null || printf unknown)
 check_required_command git 2.30 git --version
 check_required_command curl 7.70 curl --version
 check_required_command jq 1.6 jq --version
+check_required_command uv 0.11 uv --version
+
+if [ -x "$REPO_ROOT/.agent-lab/mlx/venv/bin/python" ]; then
+    if "$REPO_ROOT/.agent-lab/mlx/venv/bin/python" -c '
+from importlib.metadata import version
+assert version("mlx-lm") == "0.31.3"
+assert version("mlx-vlm") == "0.6.6"
+' >/dev/null 2>&1; then
+        pass_check 'isolated MLX-LM 0.31.3 and MLX-VLM 0.6.6 runtime'
+    else
+        fail_check "MLX runtime drift: run 'agent-lab mlx setup'"
+    fi
+else
+    warn_check "MLX runtime not installed: run 'agent-lab mlx setup'"
+fi
 
 if command_exists ollama; then
     ollama_version=

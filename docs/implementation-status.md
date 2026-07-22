@@ -26,6 +26,9 @@ authority.
   recovery documentation
 - P9-T03 manifest work: runtime, UI, CLI, evaluation packages, embedding model,
   and model artifacts have exact versions plus immutable revisions/digests
+- P10 direct MLX phase: MLX-LM 0.31.3 for Qwen 9B text, MLX-VLM 0.6.6 for
+  Gemma 12B vision, revision-pinned Hugging Face snapshots, exclusive backend
+  switching, and Open WebUI model presets
 
 ## Release qualification
 
@@ -55,6 +58,10 @@ qualified implementation commit.
   volume
 - Active default profile: `online-manual`
 - Approved models: `qwen3.5:4b`, `qwen3.5:9b`, and `gemma4:12b`
+- Direct MLX models: Qwen 3.5 9B 4-bit revision `938d8919…` and Gemma 4 12B
+  IT 4-bit revision `73bcf090…`; complete 12.7 GB cache verified by SHA-256
+- MLX runtime: Python 3.12.13, MLX-LM 0.31.3 on port 8081, MLX-VLM 0.6.6 on
+  port 8082, with one active backend at a time
 - Local RAG: pinned `all-MiniLM-L6-v2`, Chroma, hybrid retrieval, no reranker
 - Terminal clients: LLM CLI 0.31.1 with `llm-ollama` 0.16.1; Aider 0.86.2 on
   uv-managed Python 3.12.13
@@ -65,6 +72,6 @@ Generated results, secrets, model weights, caches, chats, vectors, logs,
 
 ## Post-MVP
 
-P10 in the local Cursor plan is a separate multi-backend phase covering direct
-MLX, llama.cpp, and optional LM Studio paths. It does not change the MVP release
-gate and must not be reported as implemented by the Ollama-only MVP work.
+The direct MLX portion of P10 is implemented and qualified independently of the
+historical Ollama-only `v0.1.0-rc.1` release gate. llama.cpp and optional LM
+Studio paths remain unimplemented.

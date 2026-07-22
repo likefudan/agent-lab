@@ -15,8 +15,8 @@ command -v jq >/dev/null 2>&1 || fail 'jq is required'
 command -v docker >/dev/null 2>&1 || fail 'Docker CLI is required'
 [[ -f "${ROOT}/.env" ]] || fail 'run bin/agent-lab setup before this smoke test'
 
-admin_email=$(sed -n 's/^WEBUI_ADMIN_EMAIL=//p' "${ROOT}/.env")
-admin_password=$(sed -n 's/^WEBUI_ADMIN_PASSWORD=//p' "${ROOT}/.env")
+admin_email=${OPEN_WEBUI_ADMIN_EMAIL:-$(sed -n 's/^WEBUI_ADMIN_EMAIL=//p' "${ROOT}/.env")}
+admin_password=${OPEN_WEBUI_ADMIN_PASSWORD:-$(sed -n 's/^WEBUI_ADMIN_PASSWORD=//p' "${ROOT}/.env")}
 [[ -n $admin_email && -n $admin_password ]] || fail 'Open WebUI admin credentials are missing from .env'
 
 api() {

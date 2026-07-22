@@ -22,6 +22,7 @@ expect_status() {
 help_output="$($CLI --help)"
 [[ "$help_output" == *'offline verify'* ]] || fail 'help omits offline verify'
 [[ "$help_output" == *'doctor'* ]] || fail 'help omits doctor'
+[[ "$help_output" == *'mlx'* ]] || fail 'help omits mlx'
 
 expect_status "$EX_USAGE" "$CLI"
 expect_status "$EX_USAGE" "$CLI" unknown-command
@@ -41,6 +42,8 @@ setup_output="$($CLI setup --help)"
 [[ "$setup_output" == *'agent-lab setup'* ]] || fail 'setup was not dispatched'
 models_output="$($CLI models list)"
 [[ "$models_output" == *'qwen-9b'* ]] || fail 'models was not dispatched'
+mlx_help="$($CLI mlx --help)"
+[[ "$mlx_help" == *'start chat|vision'* ]] || fail 'mlx was not dispatched'
 offline_help="$($CLI offline verify --help)"
 [[ "$offline_help" == *'--boundary-confirmed'* ]] || fail 'offline verifier was not dispatched'
 expect_status "$EX_USAGE" "$CLI" offline verify

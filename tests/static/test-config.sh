@@ -85,7 +85,7 @@ expect_fail "invalid component entry shape" "components.components[0]: expected 
 fixture="$(make_component_fixture duplicate-id '.components += [.components[0]]')"
 expect_fail "duplicate component identifier" "duplicate id" "$fixture" "$MODELS"
 
-fixture="$(make_component_fixture floating-image '.components[1].artifact.reference = "ghcr.io/open-webui/open-webui:latest"')"
+fixture="$(make_component_fixture floating-image '(.components[] | select(.id == "open-webui") | .artifact.reference) = "ghcr.io/open-webui/open-webui:latest"')"
 expect_fail "floating OCI image tag" "artifact.reference: OCI images must use an immutable" "$fixture" "$MODELS"
 
 fixture="$(make_component_fixture missing-revision 'del(.components[0].source.revision)')"
@@ -94,13 +94,13 @@ expect_fail "missing component revision" "source.revision: expected an immutable
 fixture="$(make_component_fixture remote-endpoint '.components[0].endpoints.openai_api = "https://api.example.com/v1"')"
 expect_fail "remote API endpoint" "endpoints.openai_api: MVP endpoint must be local" "$fixture" "$MODELS"
 
-fixture="$(make_component_fixture remote-default '.components[1].required_environment.OLLAMA_BASE_URL = "https://api.example.com/v1"')"
+fixture="$(make_component_fixture remote-default '(.components[] | select(.id == "open-webui") | .required_environment.OLLAMA_BASE_URL) = "https://api.example.com/v1"')"
 expect_fail "remote API endpoint default" "required_environment.OLLAMA_BASE_URL: MVP endpoint default must be local" "$fixture" "$MODELS"
 
 fixture="$(make_component_fixture missing-artifact-digest 'del(.components[0].artifact.sha256)')"
 expect_fail "missing native artifact digest" "artifact.sha256: expected 64 lowercase hex" "$fixture" "$MODELS"
 
-fixture="$(make_component_fixture committed-secret '.components[1].required_environment.WEBUI_SECRET_KEY = "actual-production-secret-value"')"
+fixture="$(make_component_fixture committed-secret '(.components[] | select(.id == "open-webui") | .required_environment.WEBUI_SECRET_KEY) = "actual-production-secret-value"')"
 expect_fail "committed secret" "catalog contains a secret-like value" "$fixture" "$MODELS"
 
 fixture="$(make_model_fixture duplicate-alias '.models[1].alias = .models[0].alias')"

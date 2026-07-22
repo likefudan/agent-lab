@@ -3,7 +3,8 @@
 This guide reproduces the Agent Lab MVP on Apple Silicon macOS. The qualified
 host is an M5 MacBook Air with 24 GB unified memory, macOS 26.5.2, Docker
 Desktop 4.80.0 (engine 29.6.1), native Ollama `0.32.1`, Open WebUI `0.10.2`,
-LLM CLI `0.31.1`, `llm-ollama` `0.16.1`, and Aider `0.86.2`. Other Apple
+MLX-LM `0.31.3`, MLX-VLM `0.6.6`, LLM CLI `0.31.1`, `llm-ollama` `0.16.1`,
+and Aider `0.86.2`. Other Apple
 Silicon systems may work, but are not the release-qualified host.
 
 ## Prerequisites
@@ -16,12 +17,15 @@ curl --version
 jq --version
 docker info
 docker compose version
+uv --version
 ```
 
 The runtime minimums checked by `doctor` are Git 2.30, curl 7.70, jq 1.6, and
 Docker 24. The Open WebUI image is pinned by OCI digest, so no local source
 build is required. Approximately 20 GB is needed for the three approved model
 artifacts in addition to Docker data, caches, and safe working space.
+The two direct MLX snapshots require approximately another 12.7 GB; Ollama and
+Hugging Face weights are separate copies.
 
 Clone the repository and remain on the intended release branch or tag:
 
@@ -62,14 +66,33 @@ bin/agent-lab models verify
 
 Each pull displays its approximate size and asks for confirmation. The command
 rejects an artifact whose manifest or blob digests differ from
-`config/models.json`; it never substitutes a hosted model. Next cache and pin
-the local RAG embedding files, apply the default profile, and verify health:
+`config/models.json`; it never substitutes a hosted model.
+
+Install the isolated MLX environment and obtain the exact Hugging Face
+snapshots while online:
+
+```sh
+bin/agent-lab mlx setup
+bin/agent-lab mlx models download qwen-9b-mlx
+bin/agent-lab mlx models download gemma-12b-mlx
+bin/agent-lab mlx models verify
+bin/agent-lab mlx start chat
+```
+
+If the snapshots already exist in the standard Hugging Face cache, `download`
+performs a full file-size and SHA-256 verification without downloading a second
+copy. The launch configuration always loads the pinned snapshot with Hugging
+Face offline mode enabled.
+
+Next cache and pin the local RAG embedding files, register both MLX providers,
+apply the default profile, and verify health:
 
 ```sh
 config/open-webui/apply-rag-config.sh
 config/open-webui/verify-embedding-cache.sh
 config/open-webui/apply-chat-config.sh
 config/open-webui/apply-task-config.sh
+config/open-webui/apply-mlx-config.sh
 config/open-webui/apply-profile.sh online-manual
 bin/agent-lab health
 ```
@@ -83,9 +106,10 @@ prevents auxiliary requests from filling the 4,096-token context or returning
 unparseable metadata while blocking normal chat.
 
 Open <http://127.0.0.1:3000>, sign in with the `.env` administrator values,
-select a model, and send a short message. Upload a small text document and ask
-a question whose answer appears only in that document; verify the answer cites
-the uploaded source. Use `gemma-12b` for an image check. These actions confirm
+select `Agent Lab MLX Qwen 9B`, and send a short message. Upload a small text
+document and ask a question whose answer appears only in that document; verify
+the answer cites the uploaded source. Run `bin/agent-lab mlx start vision`, then use
+`Agent Lab MLX Gemma 12B Vision` for an image check. These actions confirm
 the browser, local inference, persistent RAG path, and vision route.
 
 Before relying on disconnected operation, read the [privacy and offline

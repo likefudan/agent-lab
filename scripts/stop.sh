@@ -43,6 +43,10 @@ esac
 
 require_command launchctl
 
+if [ -x "$REPO_ROOT/.agent-lab/mlx/venv/bin/python" ]; then
+    "$REPO_ROOT/scripts/mlx.sh" stop all
+fi
+
 if command_exists docker && docker info >/dev/null 2>&1 && [[ -r "$ENV_FILE" ]]; then
     container_id=$(docker compose --project-directory "$REPO_ROOT" --env-file "$ENV_FILE" \
         -f "$COMPOSE_FILE" ps --quiet open-webui 2>/dev/null || true)

@@ -53,6 +53,93 @@
       "decision": "docs/decisions/0002-ollama-compatibility.md"
     },
     {
+      "id": "mlx-lm",
+      "name": "MLX-LM",
+      "type": "native_inference_runtime",
+      "status": "mvp",
+      "version": "0.31.3",
+      "license": "MIT",
+      "source": {
+        "repository": "https://github.com/ml-explore/mlx-lm",
+        "release": "https://github.com/ml-explore/mlx-lm/releases/tag/v0.31.3",
+        "tag": "v0.31.3",
+        "revision": "ed1fca4cef15a824c5f1702c80f70b4cffc8e4dd"
+      },
+      "artifact": {
+        "distribution": "pypi_wheel",
+        "reference": "mlx_lm-0.31.3-py3-none-any.whl",
+        "url": "https://files.pythonhosted.org/packages/90/02/9a67b8e4f87e3e2e5cd7b1ad79304b93c09a0db6af34bee75e6551c06c60/mlx_lm-0.31.3-py3-none-any.whl",
+        "sha256": "758cfddf1180053b7613db76fad3d246a331a2a905808e1164a275621fc983b8"
+      },
+      "platform": {
+        "os": "macos",
+        "architecture": "arm64",
+        "python": "3.12.13",
+        "installer": "uv isolated environment"
+      },
+      "endpoints": {
+        "bind": "127.0.0.1:8081",
+        "openai_api": "http://127.0.0.1:8081/v1",
+        "open_webui_bridge": "http://host.docker.internal:8081/v1"
+      },
+      "required_environment": {
+        "HF_HUB_OFFLINE": "1",
+        "HF_HOME": "<local-hugging-face-cache>"
+      },
+      "capabilities": {
+        "text_chat": "verified",
+        "openai_chat_completions": "verified",
+        "streaming": "supported",
+        "qwen_3_5": "verified",
+        "loopback_only": "verified"
+      },
+      "decision": "docs/decisions/0011-mlx-backends.md"
+    },
+    {
+      "id": "mlx-vlm",
+      "name": "MLX-VLM",
+      "type": "native_inference_runtime",
+      "status": "mvp",
+      "version": "0.6.6",
+      "license": "MIT",
+      "source": {
+        "repository": "https://github.com/Blaizzy/mlx-vlm",
+        "release": "https://github.com/Blaizzy/mlx-vlm/releases/tag/v0.6.6",
+        "tag": "v0.6.6",
+        "revision": "c9e27b08311f9c1f38690c46034b04c7598d73ee"
+      },
+      "artifact": {
+        "distribution": "pypi_wheel",
+        "reference": "mlx_vlm-0.6.6-py3-none-any.whl",
+        "url": "https://files.pythonhosted.org/packages/af/d4/7e9a90b9f46e61d0fe32b03cf26f5234afdc23863dfd6460997ed13b42d9/mlx_vlm-0.6.6-py3-none-any.whl",
+        "sha256": "c0fcbd9c0297ac94e923772a59610173553a42b36c74370dc65191250b91ef6e"
+      },
+      "platform": {
+        "os": "macos",
+        "architecture": "arm64",
+        "python": "3.12.13",
+        "installer": "uv isolated environment"
+      },
+      "endpoints": {
+        "bind": "127.0.0.1:8082",
+        "openai_api": "http://127.0.0.1:8082/v1",
+        "health": "http://127.0.0.1:8082/health",
+        "open_webui_bridge": "http://host.docker.internal:8082/v1"
+      },
+      "required_environment": {
+        "HF_HUB_OFFLINE": "1",
+        "HF_HOME": "<local-hugging-face-cache>"
+      },
+      "capabilities": {
+        "multimodal_chat": "verified",
+        "openai_chat_completions": "verified",
+        "gemma_4_vision": "verified",
+        "continuous_batching": "verified",
+        "loopback_only": "verified"
+      },
+      "decision": "docs/decisions/0011-mlx-backends.md"
+    },
+    {
       "id": "open-webui",
       "name": "Open WebUI",
       "type": "containerized_web_application",
