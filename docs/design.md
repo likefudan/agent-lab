@@ -1,402 +1,579 @@
-# Agent Lab 技术设计：在 MacBook Air M5（24GB）上本地部署 Qwen3.8-27B
+# Agent Lab Technical Design: Qwen3.8-27B on a MacBook Air M5 (24GB), Served Publicly at api.llmat.dev
 
-- 状态：已评审，待实现
-- 日期：2026-10-04
-- 取代：2026-07-18 的旧版 `docs/design.md`（基于 MLX-VLM + Open WebUI 的多模型方案，已整体废弃）
-- 任务拆分：见 [`docs/tasks/README.md`](tasks/README.md)
+- Status: reviewed, ready for implementation
+- Date: 2026-10-04
+- Revision history:
+  - 2026-10-04 first version (PR #2), replacing the 2026-07-18 design.
+  - 2026-10-04 revision: drop Ollama and use mlx-lm only; add public access at `api.llmat.dev` for Cursor and opencode; translate all docs to English.
+- Task breakdown: see [`docs/tasks/README.md`](tasks/README.md)
 
-## 0. 结论摘要
+## 0. Summary of decisions
 
-| 问题 | 结论 |
+| Question | Decision |
 | --- | --- |
-| 模型 | `Qwen/Qwen3.8-27B`（27B dense，混合注意力，Apache 2.0，2026-08 发布） |
-| 量化 | **4-bit（Q4）为默认**。3-bit 只作为内存吃紧时的后备，不作为默认 |
-| 运行时 | **mlx-lm 为默认后端**，Ollama（MLX 引擎）为受支持的备选后端，两者都在本方案中实现 |
-| 成熟度 | 两条路径都已正式支持该模型，但模型发布仅约 7 周，属于"可用、但需要实测确认"的阶段 |
-| Context | **默认 32K**。64K 在 fp16 KV 下会把 macOS 挤到只剩约 2GB，不作为可用档位，只有在 8-bit KV 或 Q3 可用且实测通过后才考虑；262K 原生上限在 24GB 上不可行 |
-| 思考模式 | 默认**关闭**，可按请求打开。模型默认 `xhigh` 思考，在本机约 6–9 tok/s 的速度下不可接受 |
-| 同级替代 | Gemma 4 26B-A4B（MoE，速度快约 3–5 倍，能力明显弱）作为"快速档"候选；其余同级模型在 24GB 上不合适 |
-| 隔离与打包 | 所有文件都在一个目录内（工具链、Python、依赖、模型、日志），不装 Homebrew、不改全局 Python、不注册后台服务；支持打成离线包部署到其他 Mac |
-| 唯一的系统级改动 | 临时提高 GPU 可用内存上限（`sysctl iogpu.wired_limit_mb`），需显式确认，重启自动恢复 |
+| Model | `Qwen/Qwen3.8-27B` (27B dense, hybrid attention, Apache 2.0, released 2026-08) |
+| Quantization | **4-bit (Q4)**. 3-bit is only a fallback if memory turns out to be too tight |
+| Runtime | **mlx-lm only**. Ollama, LM Studio and llama.cpp are out of scope |
+| Maturity | mlx-lm supports this model's architecture, but **tool-call parsing for non-Coder Qwen models after 3.5 is not yet reliable** in mlx-lm. This is the top risk for Cursor and opencode (section 7.4) |
+| Context | **32K by default**, provided the prompt cache does not keep a second copy of the KV cache (section 4.2, measured in T06); otherwise 24K. 64K is not offered |
+| Thinking mode | **Off by default**, can be enabled per request. At about 6–9 tok/s on this machine, the model's default `xhigh` thinking is unusable |
+| Public access | **`https://api.llmat.dev/v1`**, exposed through Cloudflare Tunnel (the domain's DNS is already on Cloudflare). No inbound ports are opened on the Mac |
+| Authentication | Every request needs a Bearer API key, including requests from the Mac itself. One key per client, each revocable on its own |
+| Clients | **Cursor** (requires the Pro plan; its requests come from Cursor's servers, so the endpoint must be public) and **opencode** |
+| Alternatives | Gemma 4 26B-A4B (MoE, roughly 3–5x faster, clearly weaker) as an optional "fast" profile. No other model in this class fits 24GB well |
+| Isolation and packaging | Toolchain, Python, dependencies, model weights, cloudflared and secrets all live inside the project directory. No Homebrew, no global Python changes, no system services. Can be packed into an offline bundle for another Mac |
+| Only system-level change | Temporarily raising the GPU wired memory limit (`sysctl iogpu.wired_limit_mb`). Requires explicit confirmation and resets on reboot |
 
-本文中的数字分三类，并逐一标注：**[实测/官方]** 来自模型卡或第三方实测，**[估算]** 是根据架构参数推算的，**[待验证]** 必须在 T06 基准测试任务中在目标机器上实测确认。
+Numbers in this document carry one of three labels: **[measured/official]** comes from the model card or third-party measurements, **[estimate]** is derived from the architecture, and **[to verify]** must be measured on the target machine (mostly in the T06 benchmark task).
 
-## 1. 目标与非目标
+## 1. Goals and non-goals
 
-### 目标
+### Goals
 
-1. 在一台 MacBook Air M5、24GB 统一内存的机器上，稳定运行 Qwen3.8-27B，对本机程序提供 OpenAI 兼容的 HTTP 接口。
-2. 环境完全自包含：不破坏本机已有的 Python、Homebrew、Ollama 等任何环境，删除项目目录即可完全卸载。
-3. 可打包、可迁移：同一套配置能一键打成离线包，在另一台 Apple Silicon Mac 上无需联网即可部署；接口契约不依赖具体后端，将来迁到 Linux/NVIDIA 服务器只需换后端。
-4. 内存可预测：任何请求都不能把机器拖进大量 swap 或卡死。
-5. 有可复现的基准测试，用数据决定 context 档位和默认后端。
+1. Run Qwen3.8-27B reliably on a MacBook Air M5 with 24GB of unified memory.
+2. Serve an OpenAI-compatible API at `https://api.llmat.dev/v1` that both Cursor and opencode can use, including their agent (tool-calling) features.
+3. Stay fully self-contained: do not disturb any existing Python, Homebrew, Ollama or other setup on the machine. Deleting the project directory uninstalls everything.
+4. Be packable and portable: the same configuration can be packed into an offline bundle and deployed to another Apple Silicon Mac without network access. Moving the public endpoint to another machine only needs a new tunnel token.
+5. Keep memory predictable: no request may push the machine into heavy swapping or a freeze.
+6. Be safe to expose publicly: requests without a valid key never reach the inference server, and a leaked key can be revoked quickly.
+7. Have reproducible benchmarks, so the context size is decided by data.
 
-### 非目标（v1 不做）
+### Non-goals (not in v1)
 
-- 网页聊天界面、RAG、联网搜索、多模型同时常驻（旧设计里的 Open WebUI、supervisor 动态切换模型等全部移除）。
-- 图像/视频输入。模型本身支持视觉，但视觉塔会额外占用约 0.9GB，在 24GB 上会直接挤占 context。v1 只做文本；Ollama 后端天然带视觉，可作为将来的入口（见第 10 节）。
-- Docker。macOS 上的 Docker 运行在 Linux 虚拟机里，无法使用 Metal GPU，不能用于本机推理。
-- 对外网提供服务。默认只监听 `127.0.0.1`。
+- A web chat UI, RAG, web search, or keeping several models loaded at once.
+- Image and video input. The vision tower costs about 0.9GB more, which comes straight out of the context budget on 24GB. It can be added later through mlx-vlm, with its own design.
+- An Ollama backend (dropped on 2026-10-04).
+- Port forwarding, opening inbound ports, or running our own reverse proxy server. Public traffic only goes through Cloudflare Tunnel.
+- Multi-user billing or quotas. v1 has a simple "one key per client" model.
+- Cursor Tab completion. Cursor's Tab completion does not use custom models [measured/official], so this setup cannot replace it.
+- Docker. Docker on macOS cannot use the Metal GPU.
+- Linux/NVIDIA deployment (the interfaces leave room for it; section 8.4).
 
-## 2. 硬件约束
+## 2. Hardware constraints
 
-| 项目 | 数值 | 来源 |
+| Item | Value | Source |
 | --- | --- | --- |
-| 统一内存 | 24GB | 用户机器 |
-| 内存带宽 | 约 142 GB/s（STREAM 实测），比 M4 高约 26% | [实测/官方] MindStudio |
-| 散热 | 无风扇，持续负载下有约 6% 的降频 | [实测/官方] MindStudio |
-| GPU 默认可用内存 | 由内核按物理内存推导，24GB 机型约 16–18GB | [实测/官方]，具体值以 `doctor` 读到的数为准 [待验证] |
+| Unified memory | 24GB | User's machine |
+| Memory bandwidth | About 142 GB/s (STREAM), about 26% higher than M4 | [measured/official] MindStudio |
+| Cooling | Fanless; about 6% throttling under sustained load | [measured/official] MindStudio |
+| Default GPU memory limit | Derived by the kernel from physical memory; about 16–18GB on a 24GB machine | [measured/official]; the exact value is whatever `doctor` reads [to verify] |
+| Sleep | The Mac sleeps when the lid is closed or when idle, and the public service is down while it sleeps | Section 7.5 |
 
-两个直接后果：
+Two direct consequences:
 
-- **解码速度受带宽限制。** 每生成一个 token 要把约 15GB 的 4-bit 权重读一遍，理论上限约 142 / 15 ≈ 9.5 tok/s，实际预计 **6–9 tok/s** [估算]。这决定了思考模式必须默认关闭（第 5 节）。
-- **默认 GPU 内存上限装不下。** 4-bit 权重约 15–16GB，已接近或超过默认上限，必须临时提高上限（第 4.3 节）。
+- **Decoding is bandwidth-bound.** Every generated token reads all ~15GB of 4-bit weights, so the theoretical ceiling is about 142 / 15 ≈ 9.5 tok/s. Expect **6–9 tok/s** in practice [estimate].
+- **The default GPU memory limit is too small.** The 4-bit weights alone are about 15GB, close to the default limit, so the limit must be raised temporarily (section 4.3).
 
-## 3. 模型与量化选型
+## 3. Model and quantization
 
-### 3.1 Qwen3.8-27B 关键参数 [实测/官方]
+### 3.1 Qwen3.8-27B key facts [measured/official]
 
-| 项目 | 数值 |
+| Item | Value |
 | --- | --- |
-| 参数量 | 27B，dense |
-| 层结构 | 64 层：16 组 ×（3 层 Gated DeltaNet 线性注意力 + 1 层 Gated Attention） |
-| 全注意力层 | 16 层，24 个 Q 头，**4 个 KV 头**，head dim 256 |
-| 原生 context | 262,144；YaRN 可扩展到约 1M |
-| 模态 | 文本、图像、视频 |
-| 思考模式 | 默认开启，`reasoning_effort` 可选 xhigh / medium / low |
-| 推荐采样 | 思考：T=1.0, top_p=0.95, top_k=20；非思考：T=0.7, top_p=0.8, top_k=20 |
-| 许可证 | Apache 2.0 |
+| Parameters | 27B, dense |
+| Layout | 64 layers: 16 × (3 × Gated DeltaNet linear attention + 1 × Gated Attention) |
+| Full-attention layers | 16 layers, 24 Q heads, **4 KV heads**, head dim 256 |
+| Native context | 262,144; about 1M with YaRN |
+| Modalities | Text, image, video |
+| Thinking mode | On by default; `reasoning_effort` can be xhigh / medium / low |
+| Recommended sampling | Thinking: T=1.0, top_p=0.95, top_k=20. Non-thinking: T=0.7, top_p=0.8, top_k=20 |
+| Agent ability | SWE-bench Pro 61.7%, OSWorld-Verified 84.3%. In a same-hardware test, all 90 single-step tool calls were valid, and 28 of 30 multi-step tool calls |
+| License | Apache 2.0 |
 
-混合注意力是这个模型能在 24GB 上开到可用 context 的关键：只有 16 层全注意力层需要 KV cache，48 层线性注意力层只保存固定大小的状态。
+The hybrid attention is what makes a usable context possible on 24GB: only the 16 full-attention layers need a KV cache, while the 48 linear-attention layers keep a fixed-size state.
 
-### 3.2 Q4 还是 Q3
+### 3.2 Q4 or Q3
 
-GGUF 社区量化与 BF16 的对比 [实测/官方，kingy.ai 汇总]：
+Community GGUF quantizations compared against BF16 [measured/official, summarized by kingy.ai]:
 
-| 量化 | 文件大小 | KL 散度 | Top-1 一致率 |
+| Quantization | File size | KL divergence | Top-1 agreement |
 | --- | --- | --- | --- |
-| Q3（IQ3_S） | 13.8GB | 0.0325 | 92.4% |
-| Q4（Q4_K_M / UD-Q4_K_XL） | 16.8–17.9GB | 0.0096–0.0113 | 95.5–96.0% |
-| Q5（UD-Q5_K_XL） | 20.2GB | 0.0044 | 97.3% |
+| Q3 (IQ3_S) | 13.8GB | 0.0325 | 92.4% |
+| Q4 (Q4_K_M / UD-Q4_K_XL) | 16.8–17.9GB | 0.0096–0.0113 | 95.5–96.0% |
+| Q5 (UD-Q5_K_XL) | 20.2GB | 0.0044 | 97.3% |
 
-MLX 格式 [实测/官方]：`mlx-community/Qwen3.8-27B-4bit` 共 16.1GB（含 bf16 视觉塔约 0.9GB），mlx-lm 以纯文本方式加载时权重约 **15.0GB**。目前没有找到官方或 mlx-community 发布的 Qwen3.8-27B 3-bit MLX 版本，需要时可用 `mlx_lm.convert` 自行转换。
+MLX format [measured/official]: `mlx-community/Qwen3.8-27B-4bit` is 16.1GB in total, including a bf16 vision tower of about 0.9GB. Loaded text-only by mlx-lm, the weights are about **15.0GB**. We found no official or mlx-community 3-bit MLX build of Qwen3.8-27B; one can be made with `mlx_lm.convert` if needed.
 
-**结论：默认使用 Q4。**
+**Decision: use Q4.**
 
-- Q3 的 KL 散度约是 Q4 的 3 倍，Top-1 一致率低约 3–4 个百分点，第三方评价是"受限但可用、质量损失可见"。
-- Q3 只能省出约 3GB，按第 4 节的算法，相当于多出约 45K token 的 KV 空间。但 Q4 已经能开到 32K，对大多数用途足够，用质量换这部分 context 不划算。
-- 不选 Q5/Q6：Q5 约 20GB，在 24GB 机器上几乎不剩 context 空间。
-- Q3 保留为后备：如果 T06 实测发现 Q4 在 32K 下内存压力过大，再评估自转换的 3-bit 或 3/4 混合精度版本。
+- Q3's KL divergence is about 3x Q4's, and top-1 agreement is 3–4 points lower. Third parties describe it as "constrained but usable, with visible quality loss". For agent use, a malformed tool call is expensive, so trading quality for memory is not worth it.
+- Q3 only saves about 3GB, which is roughly 45K more tokens of KV cache (using the numbers in section 4).
+- Not Q5/Q6: Q5 is about 20GB and leaves almost no room for context on 24GB.
+- Q3 stays as a fallback: if T06 shows that Q4 is still under too much memory pressure at 24K, evaluate a self-converted 3-bit or mixed 3/4-bit build.
 
-### 3.3 运行时支持与成熟度
+### 3.3 Runtime: mlx-lm only
 
-| 运行时 | 支持情况 | 成熟度判断 |
+| Runtime | Support | Decision |
 | --- | --- | --- |
-| **mlx-lm** | 自 v0.30.7 起支持 Qwen3.5 系列纯文本推理；Qwen3.8-27B 与 Qwen3.5/3.6-27B 层结构相同，mlx-community 的 4-bit 版本月下载量约 17.7 万 [实测/官方] | 可用。Qwen3.8 是否沿用同一 `model_type`、需要的最低 mlx-lm 版本 [待验证]，在 T04 中锁定版本 |
-| **Ollama** | v0.32.12 起正式支持；提供 `qwen3.8:27b-mlx`（MLX 引擎，18GB，含视觉）和 `qwen3.8:27b`（q4_K_M GGUF，18GB）[实测/官方] | 可用。视觉解析器发布初期有过 bug 并已修复；OpenAI 兼容接口会忽略请求里的 context 长度，必须在 Modelfile 里写死 `num_ctx` |
-| LM Studio | 有 MLX 和 GGUF 版本 | 不采用：GUI 应用，难以自包含和打包 |
-| llama.cpp | 有 GGUF 版本 | 不单独采用：Ollama 已覆盖 GGUF 路径 |
+| **mlx-lm** | Text-only Qwen3.5 support since v0.30.7. Qwen3.8-27B has the same layer layout as Qwen3.5/3.6-27B, and the mlx-community 4-bit build has about 177K downloads per month [measured/official]. Whether Qwen3.8 uses the same `model_type`, and the minimum mlx-lm version [to verify, T04] | **Use** |
+| Ollama | Supported since v0.32.12; `qwen3.8:27b-mlx` is 18GB including vision [measured/official] | Not used (decided 2026-10-04) |
+| LM Studio | MLX and GGUF builds available | Not used: a GUI app, hard to keep self-contained and packable |
+| llama.cpp | GGUF builds available | Not used |
 
-**为什么默认选 mlx-lm：**
+Why mlx-lm: text-only loading takes about 15GB, about 3GB less than Ollama's 18GB, which is roughly 45K tokens of KV cache. It is a single pinned Python package, so it is the easiest to keep self-contained and to pack. Sampling defaults, chat template arguments, prefill chunking and the prompt cache size can all be set on the command line.
 
-1. **内存占用最小。** 纯文本加载约 15GB，Ollama 两个 tag 都是 18GB（含视觉塔）。在 24GB 机器上，这 3GB 差距约等于 45K token 的 KV cache。
-2. **最容易自包含。** 就是一个锁定版本的 Python 包，用 uv 装在项目目录里，打包也最直接。
-3. **可控性好。** 采样参数、chat template 参数（关闭思考）、prefill 分块、prompt cache 上限都能在启动参数里设定。
+**Known gaps in mlx-lm, and how this design covers them:**
 
-**mlx-lm 的两个短板，以及本设计如何补上：**
+| Gap | Mitigation |
+| --- | --- |
+| `mlx_lm.server` has no hard context limit; the KV cache grows with the request. Released versions have no `--kv-bits` [measured/official] | The gateway enforces a token limit (section 6.3); backend concurrency is 1 |
+| Default concurrency is 32, which multiplies KV memory | `--decode-concurrency 1` and `--prompt-concurrency 1`; the gateway handles queuing |
+| Running out of memory can cause a kernel panic instead of an error: a user running a hybrid-attention model on an M4 Max hit an `IOGPUMemory.cpp` panic when the KV cache grew without bound [measured/official] | A thin launch wrapper calls `mx.set_memory_limit()` (or the current equivalent) before starting the server, so going over the limit becomes a catchable Python exception. Together with the gateway limit, that gives two layers of protection |
+| For non-Coder Qwen3.5/3.6 models, the server's tool-parser auto-detection fails: requests with tools come back with empty content [measured/official, mlx-lm issue #1293] | See section 7.4: first try forcing the `qwen3_coder` parser; if that is not reliable, the gateway parses tool calls itself |
 
-- `mlx_lm.server` **没有硬性的 context 上限**，KV cache 随请求长度增长；已发布版本也没有 `--kv-bits`（KV 量化）参数（相关 PR 进行中）[实测/官方]。一个超长请求就可能把机器推进 swap。补救：所有请求经过本项目的网关（第 6.3 节），网关先算 token 数，超出档位直接拒绝；同时把 `--decode-concurrency` 和 `--prompt-concurrency` 设为 1。
-- 默认并发是 32，会让 KV 按并发数放大。补救同上。
+### 3.4 Other models in the same class
 
-**为什么同时实现 Ollama：** 它通过 `num_ctx` 预分配 KV cache，内存是硬上限，行为更可预测；它自带视觉；它是对比测试的对照组。如果 T07 的对比测试显示 Ollama 在速度和稳定性上明显更好，就把默认后端切换过去，网关接口不变。
-
-### 3.4 同级别的其他模型
-
-| 模型 | 类型 | 4-bit 大小 | 与 Qwen3.8-27B 对比 | 在 24GB 上的结论 |
+| Model | Type | 4-bit size | Compared with Qwen3.8-27B | Verdict on 24GB |
 | --- | --- | --- | --- | --- |
-| **Gemma 4 26B-A4B** | MoE，激活约 4B | 约 15GB | HLE 17.2% 对 30.8%，能力明显弱；但每 token 只读约 4B 参数，解码预计快 3–5 倍 [估算] | **作为"快速档"候选**，在 T09 评估 |
-| Gemma 4 31B | dense | 约 17.1GiB（Q4_K_M） | 同机测试中编程 6/12 对 12/12；64K 需要 Q8 KV 才能放下 | 不选：更大、更慢、更弱 |
-| Qwen3.6-27B | dense，同架构 | 约 15.7GiB | 内存曲线完全相同，但编程 8/12、文档问答 8/24，明显落后 | 不选：被 3.8 全面替代 |
-| Qwen3.6-35B-A3B | MoE，激活约 3B | 约 20GB [估算] | 速度快 | 不选：4-bit 在 24GB 上几乎没有 context 空间 |
-| Qwen3.8 其他尺寸 | Flash-Next（180B-A6B）、2.4T-A95B | 远超 24GB | — | 不可行。Qwen3.8 系列中只有 27B 能在单机消费级硬件上运行 |
+| **Gemma 4 26B-A4B** | MoE, about 4B active | About 15GB | HLE 17.2% vs 30.8%, clearly weaker; but it only reads about 4B parameters per token, so decoding should be 3–5x faster [estimate] | **Candidate "fast" profile**, evaluated in T10 |
+| Gemma 4 31B | Dense | About 17.1GiB (Q4_K_M) | Coding 6/12 vs 12/12 in a same-hardware test; needs a Q8 KV cache to fit 64K | Not chosen: bigger, slower, weaker |
+| Qwen3.6-27B | Dense, same architecture | About 15.7GiB | Identical memory curve, but coding 8/12 and document QA 8/24, clearly behind | Not chosen: superseded by 3.8 |
+| Qwen3.6-35B-A3B | MoE, about 3B active | About 20GB [estimate] | Fast | Not chosen: at 4-bit it leaves almost no room for context on 24GB |
+| Other Qwen3.8 sizes | Flash-Next (180B-A6B), 2.4T-A95B | Far beyond 24GB | — | Not feasible. 27B is the only Qwen3.8 model that runs on a single consumer machine |
 
-同机对比数据来自 kingy.ai 在 RTX 4090 24GB 上的测试 [实测/官方]，结论是"Qwen3.8-27B 是本地综合用途的最佳默认选择"。在 24GB 档位，**没有比 Qwen3.8-27B 更强、又能放得下的模型**；唯一值得保留的替代是用能力换速度的 Gemma 4 26B-A4B。
+The same-hardware comparisons come from kingy.ai's tests on an RTX 4090 24GB [measured/official], which concluded that "Qwen3.8-27B is the best default" for general local use. At 24GB, **no model that is stronger than Qwen3.8-27B also fits**.
 
-## 4. 内存预算与 context 长度
+## 4. Memory budget and context length
 
-### 4.1 KV cache 大小 [估算，与第三方数据一致]
+### 4.1 KV cache size [estimate, consistent with third-party data]
 
-每个 token 的 KV cache = 16 层 × 4 个 KV 头 × 256 维 × 2（K 和 V）× 2 字节（fp16）= **65,536 字节 = 64KiB**。
+KV cache per token = 16 layers × 4 KV heads × 256 dims × 2 (K and V) × 2 bytes (fp16) = **65,536 bytes = 64KiB**.
 
-线性注意力层的状态是固定大小，约 48 层 × 48 头 × 128 × 128 × 4 字节 ≈ 0.15GB，与 context 长度无关 [估算]。
+The linear-attention layers keep a fixed-size state of roughly 48 layers × 48 heads × 128 × 128 × 4 bytes ≈ 0.15GB, independent of context length [estimate].
 
-| Context | KV cache（fp16） | KV cache（8-bit，若可用） |
+| Context | KV cache (fp16) |
+| --- | --- |
+| 8K | 0.5GiB |
+| 24K | 1.5GiB |
+| 32K | 2.0GiB |
+| 64K | 4.0GiB |
+| 128K | 8.0GiB |
+
+### 4.2 Budget (Q4, text-only) [estimate, verified in T06]
+
+Agents like Cursor and opencode resend the whole conversation on every turn. If the prompt cache cannot hold the current conversation, every turn has to prefill the full context again, which would be unusably slow on this machine (section 5). So the prompt cache must hold **at least one full-length conversation**, and that memory has to be in the budget.
+
+The key unknown is whether mlx-lm, when reusing a cache entry, takes it out and extends it, or copies it first. The two cases give different budgets:
+
+| Item | 32K, no copy | 32K, copied | 24K, copied |
+| --- | --- | --- | --- |
+| Weights | 15.0GB | 15.0GB | 15.0GB |
+| KV cache of the current request | 2.1GB | 2.1GB | 1.6GB |
+| Prompt cache (1 conversation) | Shared with the row above | 2.1GB | 1.6GB |
+| Linear-layer state + activations + prefill chunk buffers + framework overhead | About 1.0–1.5GB | About 1.0–1.5GB | About 1.0–1.5GB |
+| **Inference process total** | **About 18.1–18.6GB** | **About 20.2–20.7GB** | **About 19.2–19.7GB** |
+| Left for macOS and other apps | About 5.5GB | About 3.5GB | About 4.5GB |
+
+Third-party numbers from an RTX 4090 for reference: Q4_K_M (GGUF, 16GiB) peaked at 18.2GiB at 32K and 20.3GiB at 64K [measured/official].
+
+**Decisions:**
+
+- **Default profile: 32K**, with `prompt_cache_bytes` sized to hold one 32K conversation (about 2.1GB) and a single cache entry.
+- **The first thing T06 measures is whether the cache is copied.** If it is, the default drops to **24K**. This barely affects opencode, which compacts the conversation according to its configured context. It matters more for Cursor; see section 7.4.
+- **64K is not offered.** It would need a GPU limit of about 22GB and leave macOS only about 2GB. Wired memory cannot be swapped out, so the risk of freezing is too high. Reconsider only if mlx-lm ships KV cache quantization, or if a Q3 build passes the T06 measurements.
+- 128K and above are not feasible on 24GB. Some write-ups estimate 64K–96K on 24GB machines; those numbers leave no headroom for macOS, and this design does not use them.
+
+### 4.3 GPU memory limit
+
+By default macOS only lets the GPU wire about 2/3 to 3/4 of unified memory. On a 24GB machine that is about 16–18GB, which cannot hold 15GB of weights plus a KV cache. The approach:
+
+- Raise the limit temporarily with `sudo sysctl iogpu.wired_limit_mb=<value>`. **It resets to the default on reboot**, so nothing permanent is left behind.
+- Recommended value: **20480MB (20GB)** [to verify, confirmed in T06]. A third party ran a 27B MLX model on a 24GB M4 with 21504MB [measured/official]; this design treats that as a hard ceiling and never exceeds it.
+- Risk: wired memory cannot be swapped out, so setting it too high can make the system stall or freeze. The tool therefore only offers three explicit commands (show / apply / revert), asks for confirmation before every apply, and never installs a LaunchDaemon to apply it at boot.
+- This is the **only** step in the design that needs sudo.
+
+## 5. Thinking mode and expected performance
+
+| Metric | Expectation | Basis |
 | --- | --- | --- |
-| 8K | 0.5GiB | 0.25GiB |
-| 32K | 2.0GiB | 1.0GiB |
-| 64K | 4.0GiB | 2.0GiB |
-| 128K | 8.0GiB | 4.0GiB |
-| 262K | 16.0GiB | 8.0GiB |
+| Decoding | 6–9 tok/s | [estimate] 142GB/s bandwidth ÷ 15GB of weights |
+| Prefill | Hundreds of tokens per second; the M5 GPU's built-in neural accelerators speed up the matrix math | [to verify] |
+| First agent turn (about 10K tokens of system prompt and tool definitions) | Possibly 30 seconds to a minute | [estimate, to verify] |
+| Later agent turns (prompt cache hit, only new content is prefilled) | A few hundred to a few thousand new tokens: several seconds to a dozen or so, plus generation time | [estimate, to verify] |
+| A 32K prompt with no cache hit | Possibly 2–5 minutes | [estimate, to verify] |
 
-### 4.2 预算表（mlx-lm 后端，Q4，纯文本）[估算，T06 验证]
+Qwen3.8-27B thinks at `xhigh` effort by default. In Simon Willison's test, one task took 21 minutes with thinking on and 2 minutes with it off [measured/official, on an M5 Max with 128GB, much faster than this machine]. Therefore:
 
-| 项目 | 32K 档（默认） | 64K（仅作对照） |
-| --- | --- | --- |
-| 权重 | 15.0GB | 15.0GB |
-| 当前请求的 KV cache（fp16） | 2.1GB | 4.3GB |
-| prompt cache 中保留的其他会话（上限可配，默认 0.5GB） | 0.5GB | 0.5GB |
-| 线性层状态 + 激活 + prefill 分块缓冲 + 框架开销 | 约 1.0–1.5GB | 约 1.0–1.5GB |
-| **推理进程合计** | **约 18.6–19.1GB** | **约 20.8–21.3GB** |
-| 留给 macOS 和其他应用 | 约 5GB | 约 2.7–3.2GB |
+- The service turns **thinking off by default** (chat template argument `enable_thinking=false`).
+- Clients can turn thinking on per request with `reasoning_effort`. mlx-lm has a known issue where changing chat template arguments per request bypasses the prompt cache [measured/official, mlx-lm issue #1803], so requests with thinking enabled lose their cache hits.
+- When a client does not set sampling parameters, the gateway fills in the model card's recommended values for thinking or non-thinking mode.
 
-第三方在 RTX 4090 上的实测与此吻合：Q4_K_M（GGUF，16GiB）在 32K 时峰值 18.2GiB，64K 时 20.3GiB [实测/官方]。
+**Honest expectations for day-to-day use:** a 27B model on this machine suits "hand it a task and come back in a few minutes", not interactive back-and-forth. An agent task in Cursor or opencode usually takes a dozen to several dozen tool-call turns, so a whole task can take ten minutes or more.
 
-**结论：**
+Optional speed-up (not in the v1 default path): the community has published `Qwen3.8-27B-MTP-4bit` (multi-token prediction), which gave about a 72% speed-up on other hardware [measured/official]. Whether mlx-lm can run MTP inference is [to verify], evaluated alongside T06.
 
-- **默认 32K。** 推理进程约 19GB，macOS 还剩约 5GB，可以同时开浏览器和编辑器，但不适合再开其他大内存应用。
-- **64K 在 fp16 KV 下不作为可用档位。** 它要求把 GPU 上限提到 22GB 左右，macOS 只剩 2GB 多，而 wired 内存无法换出，系统卡死的风险过高。只有在下面两个条件之一满足、且 T06 实测达标后，才新增 64K 档：
-  - 后端支持 8-bit KV cache（mlx-lm 尚未发布该参数；Ollama 的 GGUF 路径有 `OLLAMA_KV_CACHE_TYPE=q8_0`，MLX 引擎下是否生效 [待验证]）；
-  - 改用 Q3 权重（省约 3GB）。
-- 128K 及以上在 24GB 上不可行。
-- 有人估算 24GB 机器能开 64K–96K，那是没有给 macOS 留余量的算法，本设计不采用。
-- Ollama 后端多出约 3GB（视觉塔和 GGUF 开销），同样的预算下默认档降为 **16K** [估算]。
-
-### 4.3 GPU 内存上限
-
-macOS 默认只允许 GPU 锁定约 2/3 到 3/4 的统一内存。24GB 机器的默认值约 16–18GB，装不下 15GB 权重加 KV cache。做法：
-
-- 使用 `sudo sysctl iogpu.wired_limit_mb=<值>` 临时提高上限。**重启后自动恢复默认值**，不留下永久改动。
-- 推荐值：32K 档 **20480MB（20GB）** [待验证，T06 确认]，即推理进程约 19GB 再留约 1GB 余量。第三方在 24GB M4 上使用 21504MB 跑通了 27B MLX 模型 [实测/官方]，可作为上限参考，本设计不超过这个值。
-- 风险：wired 内存无法被换出，设得过高会让系统卡顿甚至死机。因此工具只提供"应用/查看/恢复"三个显式命令，每次应用前都要求确认，并且不安装开机自启的 LaunchDaemon。
-- 这是本方案**唯一**需要 sudo 的操作。
-
-## 5. 思考模式与性能预期
-
-| 指标 | 预期 | 依据 |
-| --- | --- | --- |
-| 解码 | 6–9 tok/s | [估算] 带宽 142GB/s ÷ 权重 15GB |
-| Prefill | 每秒数百 token 量级；M5 GPU 内置神经加速器对矩阵运算有加速 | [待验证] |
-| 32K 长提示首 token 延迟 | 可能需要 2–5 分钟；多轮对话依赖 prompt cache 避免重复 prefill | [估算，待验证] |
-
-Qwen3.8-27B 默认以 `xhigh` 强度思考。Simon Willison 的测试中，同一个任务开思考要 21 分钟，关掉只要 2 分钟 [实测/官方，M5 Max 128GB，比本机快得多]。在 6–9 tok/s 下，默认思考会让普通问题等上几分钟。因此：
-
-- 服务默认**关闭思考**（通过 chat template 参数 `enable_thinking=false`）。
-- 客户端可在单个请求里打开思考，网关负责把参数转成各后端的格式。由于 mlx-lm 已知"单请求修改 chat template 参数会绕过 prompt cache"的问题 [实测/官方，mlx-lm issue #1803]，开思考的请求会损失缓存命中，这是可以接受的代价。
-- 采样参数按模型卡推荐值分两套（思考/非思考），由网关在请求未指定时补上。
-
-可选加速（不进 v1 默认路径）：社区已有 `Qwen3.8-27B-MTP-4bit`（多 token 预测），在其他机器上有约 72% 的提速 [实测/官方]。mlx-lm 是否支持 MTP 推理 [待验证]，在 T06 中顺带评估。
-
-## 6. 总体架构
+## 6. Architecture
 
 ```mermaid
 flowchart LR
-    subgraph Clients["本机客户端"]
-        SDK["OpenAI SDK / curl"]
-        Tools["Aider、IDE 插件等"]
+    subgraph Remote["Internet"]
+        CursorSrv["Cursor servers<br/>(Cursor IDE requests originate here)"]
+        OpenCode["opencode<br/>(any machine)"]
+        Edge["Cloudflare edge<br/>api.llmat.dev · TLS · WAF rate limit"]
     end
 
-    subgraph Home["项目目录（AGENT_LAB_HOME）"]
-        CLI["alab CLI<br/>doctor · pull · serve · stop · status · bench · pack"]
-        GW["网关 127.0.0.1:8000<br/>OpenAI 兼容 · token 限额 · 默认参数 · 串行队列"]
-        subgraph Backends["推理后端（同一时间只运行一个）"]
-            MLX["mlx-lm server<br/>127.0.0.1:8100（默认）"]
-            OLL["Ollama serve<br/>127.0.0.1:8200（备选）"]
-        end
-        Store[("var/<br/>模型 · 日志 · pid · 基准结果")]
-        Tool[(".tools/<br/>uv · Python · Ollama 二进制")]
+    subgraph Mac["MacBook Air M5 (project directory AGENT_LAB_HOME)"]
+        CF["cloudflared<br/>outbound connections only"]
+        GW["Gateway 127.0.0.1:8000<br/>API keys · token limit · defaults<br/>tool calls · SSE heartbeat · serial queue"]
+        MLX["mlx-lm server<br/>127.0.0.1:8100"]
+        CLI["alab CLI<br/>doctor · pull · serve · keys · tunnel · bench · pack"]
+        Store[("var/<br/>models · secrets · logs · pids · benchmarks")]
+        Tool[(".tools/<br/>uv · Python · cloudflared")]
     end
 
-    SDK --> GW
-    Tools --> GW
-    CLI -->|"启动 · 停止 · 健康检查"| GW
-    CLI -->|"启动 · 停止 · 健康检查"| MLX
-    CLI -->|"启动 · 停止 · 健康检查"| OLL
+    CursorSrv -->|HTTPS + Bearer key| Edge
+    OpenCode -->|HTTPS + Bearer key| Edge
+    Edge <-->|"Tunnel (dialed out from the Mac)"| CF
+    CF --> GW
     GW --> MLX
-    GW -.-> OLL
+    CLI -->|"start · stop · health"| CF
+    CLI -->|"start · stop · health"| GW
+    CLI -->|"start · stop · health"| MLX
     MLX --> Store
-    OLL --> Store
+    GW --> Store
     CLI --> Tool
 ```
 
-### 6.1 组件
+opencode running on the Mac itself can also use `http://127.0.0.1:8000/v1` directly; it still needs an API key.
 
-| 组件 | 职责 | 实现 |
+### 6.1 Components
+
+| Component | Responsibility | Implementation |
 | --- | --- | --- |
-| `bootstrap.sh` | 唯一的入口脚本：把锁定版本的 uv 下载到 `.tools/`，用它安装锁定版本的 Python 和依赖到项目内 | POSIX shell，校验下载文件的 sha256 |
-| `alab` CLI | 环境检查、模型下载、启停服务、基准测试、打包 | Python 包 `agent_lab`，入口 `alab` |
-| 网关 | 对外唯一的 HTTP 端点；token 限额；补默认参数；思考开关转换；串行化请求；可选 API key | Python ASGI 应用，单进程，依赖只用 Starlette、httpx、uvicorn；计算 token 数复用 mlx-lm 已经依赖的 `transformers` tokenizer 和模型自带的 chat template |
-| mlx 后端 | 运行 `mlx_lm.server` 子进程 | 锁定版本的 mlx-lm |
-| ollama 后端 | 运行项目内的 Ollama 二进制 `ollama serve` 子进程 | 锁定版本的 Ollama 官方 macOS 发布包 |
+| `bootstrap.sh` | The single entry script: downloads pinned uv and cloudflared into `.tools/`, then uses uv to install a pinned Python and the dependencies inside the project | POSIX shell; verifies the sha256 of every download |
+| `alab` CLI | Environment checks, model downloads, starting and stopping services, key management, tunnel control, benchmarks, packaging | Python package `agent_lab`, entry point `alab` |
+| Gateway | The only externally reachable HTTP endpoint: authentication, token limit, default parameters, thinking switch, tool-call compatibility, SSE heartbeat, serial queue | Python ASGI app (Starlette, httpx, uvicorn), single process. Token counting reuses the `transformers` tokenizer that mlx-lm already depends on |
+| Inference backend | Runs `mlx_lm.server` as a child process and sets the Metal memory limit before it starts | Pinned mlx-lm plus a thin launch wrapper |
+| cloudflared | Carries `api.llmat.dev` traffic through Cloudflare Tunnel to the gateway | Pinned cloudflared binary, run as a child process managed by `alab`; never registered as a system service |
 
-**为什么需要网关，而不是让客户端直接连后端：**
+**Why a gateway is needed:**
 
-1. mlx-lm 不限制 context 长度，网关是防止 OOM 的唯一闸门。
-2. 两个后端的思考开关、采样参数、context 设置方式都不同，网关统一成一个契约，客户端不需要知道后端是谁。
-3. 端口固定为 8000，切换后端或迁移到其他机器时客户端配置不变。
+1. mlx-lm has no context limit, so the gateway is the first line of defence against running out of memory.
+2. Public exposure needs authentication, which mlx-lm's server does not have; its own docs say it is not meant for production exposure [measured/official].
+3. Cloudflare drops a connection after about 100 seconds without data, and prefill on this machine can take longer, so the gateway has to send heartbeats (section 7.3).
+4. The tool-call format clients expect may need converting from what the model actually emits (section 7.4).
+5. A fixed port and model name mean client configuration does not change when the machine or the mlx-lm version changes.
 
-网关刻意保持很薄：不做对话存储、不做路由到多个模型、不做鉴权以外的安全功能。
+The gateway is deliberately thin: no conversation storage, no multi-model routing, no billing.
 
-### 6.2 目录结构
+### 6.2 Directory layout
 
 ```text
 agent-lab/
-├── bootstrap.sh              # 唯一入口：安装工具链
-├── pyproject.toml / uv.lock  # 依赖锁定
+├── bootstrap.sh              # single entry point: installs the toolchain
+├── alab                      # wrapper script: loads .tools/env.sh, then runs the CLI
+├── pyproject.toml / uv.lock  # pinned dependencies
 ├── config/
-│   ├── models.toml           # 模型注册表：仓库、revision、sha256、大小
+│   ├── models.toml           # model registry: repo, revision, sha256, size
+│   ├── tools.toml            # versions and sha256 of uv and cloudflared
 │   └── profiles/
-│       ├── mac-24gb.toml         # 本机默认档：mlx，32K
-│       ├── mac-24gb-ollama.toml  # 本机备选档：Ollama，16K
-│       └── mac-32gb-plus.toml    # 更大内存的 Mac
-├── src/agent_lab/            # CLI、网关、后端适配器
+│       ├── mac-24gb.toml     # default profile for this machine: 32K (or the value T06 settles on)
+│       └── mac-32gb-plus.toml
+├── src/agent_lab/            # CLI, gateway, backend launch wrapper
 ├── tests/
 ├── docs/
-├── .tools/                   # 不入库：uv、Python、Ollama 二进制
-└── var/                      # 不入库：models/、ollama/、logs/、run/、bench/
+├── .tools/                   # not committed: uv, Python, cloudflared
+└── var/                      # not committed: models/, logs/, run/, bench/, secrets/
 ```
 
-所有运行时路径都从环境变量 `AGENT_LAB_HOME` 推导，默认是仓库根目录。
+All runtime paths derive from the `AGENT_LAB_HOME` environment variable, which defaults to the repository root. `var/secrets/` has mode 700 and the files in it have mode 600.
 
-### 6.3 网关 API 契约
+### 6.3 Gateway API contract
 
-- `POST /v1/chat/completions`、`POST /v1/completions`、`GET /v1/models`：OpenAI 兼容，支持流式输出。
-- `GET /healthz`：网关和后端的健康状态、当前后端、当前档位。
-- 模型名固定为 `qwen3.8-27b`，与后端内部名称解耦。
-- 扩展字段：`reasoning_effort`（`none` / `low` / `medium` / `high`，默认 `none`；`high` 对应模型的 `xhigh`），网关转换为后端各自的格式 [转换方式在 T06/T07 中验证]。
-- 限额：`prompt_tokens + max_tokens` 超过档位的 `max_context` 时返回 HTTP 400，错误信息说明上限。token 数用模型自带的 tokenizer 按 chat template 渲染后计算。请求没给 `max_tokens` 时，网关取 `min(max_output_tokens, max_context - prompt_tokens)` 显式传给后端（mlx-lm 自身默认只有 512）。
-- 并发：同一时间只处理一个请求，其余排队；队列满（默认 4）返回 HTTP 429。
-- 默认只监听 `127.0.0.1`。如果档位里把监听地址改成非本机地址，必须同时配置 API key，否则拒绝启动。
+**Endpoints:**
 
-### 6.4 配置档位（profile）示例
+- `POST /v1/chat/completions`: OpenAI-compatible, streaming and non-streaming, with `tools` / `tool_choice` / `tool_calls`. This is what Cursor and opencode use.
+- `GET /v1/models`: returns `qwen3.8-27b`.
+- `GET /healthz`: returns only `ok` or `unavailable`, with no version or configuration details. Detailed status is only available locally through `alab status`.
+- No `/v1/completions`, embeddings, Responses API or other endpoints; those return 404.
+
+**Model name:** always `qwen3.8-27b` externally. Cursor routes model names starting with `gpt-` or `claude-` to its own built-in providers [measured/official], and this name avoids that.
+
+**Authentication:**
+
+- Every request must carry `Authorization: Bearer <key>`, **including requests from 127.0.0.1**. cloudflared also connects to the gateway from the Mac itself, so exempting local requests would exempt all public requests too.
+- Keys are created with `alab keys create <name>` (32 random bytes) and shown only once; `var/secrets/keys.toml` stores only their hashes. `alab keys list` and `alab keys revoke <name>` manage them.
+- Keys are compared in constant time; failures return 401. **No IP-based bans**: Cursor's requests come from Cursor's shared server IPs, so banning by IP could block our own legitimate requests. Brute force is handled by the 32-byte random keys and Cloudflare rate limiting.
+
+**Token limit:** the prompt is rendered with the model's tokenizer and chat template (including tool definitions) to count prompt tokens.
+
+- If the prompt alone exceeds `max_context - min_output_tokens` (1024 reserved by default), return 400 with an OpenAI-style error: `{"error": {"code": "context_length_exceeded", ...}}`.
+- Otherwise **clamp** `max_tokens` to `min(requested, max_output_tokens, max_context - prompt_tokens)` before forwarding, instead of rejecting. opencode always sends `max_tokens=32000` to custom providers [measured/official, opencode issue #20078], so rejecting would make every request fail.
+
+**Parameters:**
+
+- `reasoning_effort`: `none` (default) / `low` / `medium` / `high`, where `high` maps to the model's `xhigh`. Converted into mlx-lm `chat_template_kwargs` [exact argument names confirmed against the model's chat template in T05].
+- When the client does not set sampling parameters, fill in the recommended values for thinking or non-thinking mode.
+
+**Concurrency and heartbeats:**
+
+- Only one request is forwarded at a time; the rest wait in a queue. The queue holds 4 by default; beyond that, return 429.
+- Streaming requests: the gateway sends response headers immediately, then an SSE comment line (`: keep-alive`) every 15 seconds while the request is queued or prefilling, so Cloudflare's 100-second timeout never fires.
+- Non-streaming requests: there is no way to keep the connection alive without committing to a status code early, so a non-streaming request that takes more than 100 seconds may be cut off by Cloudflare (524). Cursor and opencode both stream, so this only affects other tools; it goes in the user guide.
+- When a client disconnects, cancel the backend request and free its queue slot.
+
+**Logging:** only time, key name, prompt and output token counts, duration and status code. Request and response bodies are never logged.
+
+### 6.4 Example profile
 
 ```toml
 # config/profiles/mac-24gb.toml
 [model]
-id = "qwen3.8-27b-mlx-4bit"      # 对应 config/models.toml 中的条目
+id = "qwen3.8-27b-mlx-4bit"      # entry in config/models.toml
 
 [backend]
-kind = "mlx"                      # mlx | ollama
 port = 8100
 prefill_step_size = 2048
-prompt_cache_bytes = "512MB"
+prompt_cache_size = 1
+prompt_cache_bytes = "2.2GB"      # enough for one full-length conversation
+metal_memory_limit = "19.5GB"     # set by the launch wrapper; overflow raises instead of panicking
 
 [gateway]
-host = "127.0.0.1"
 port = 8000
-max_context = 32768
+max_context = 32768               # finalized in T06; 24576 if the cache is copied
 max_output_tokens = 8192
+min_output_tokens = 1024
 queue_size = 4
+heartbeat_seconds = 15
+
+[tunnel]
+enabled = true
+hostname = "api.llmat.dev"
 
 [system]
-gpu_wired_limit_mb = 20480        # alab gpu-limit apply 使用的推荐值
+gpu_wired_limit_mb = 20480        # value used by `alab gpu-limit apply`
 ```
 
-具体字段在 T01–T05 中定稿；数值以 T06 结果为准。
+The tunnel token is never stored in the profile; it lives in `var/secrets/tunnel-token`. Field names are finalized in T01–T07; values follow the T06 results.
 
-### 6.5 CLI 命令
+### 6.5 CLI commands
 
-| 命令 | 作用 |
+| Command | Purpose |
 | --- | --- |
-| `alab doctor` | 检查芯片、内存、macOS 版本、磁盘空间、GPU 上限、端口占用、工具链完整性 |
-| `alab pull [model]` | 下载并校验模型到 `var/models` |
-| `alab models` | 列出注册表中的模型及本地下载、校验状态 |
-| `alab gpu-limit show / apply / revert` | 查看、临时提高、恢复 GPU 内存上限 |
-| `alab serve [--profile]` | 启动后端和网关，等健康检查通过后返回。如果当前 GPU 上限低于档位要求，拒绝启动并提示运行 `alab gpu-limit apply` |
-| `alab stop` / `alab status` | 停止服务 / 查看状态、内存占用、日志位置 |
-| `alab bench` | 运行基准测试，结果写入 `var/bench/` |
-| `alab pack` / `alab unpack` | 打离线包 / 在目标机器上离线安装 |
+| `alab doctor` | Checks chip, memory, macOS version, disk space, GPU limit, port usage, toolchain integrity and tunnel setup |
+| `alab pull [model]` / `alab models` | Download and verify a model / show model status |
+| `alab gpu-limit show / apply / revert` | Show, temporarily raise, or restore the GPU memory limit |
+| `alab keys create / list / revoke` | Manage API keys |
+| `alab serve [--profile] [--no-tunnel]` | Start the backend, the gateway and (by default) the tunnel in order, and prevent idle sleep. Refuses to start if the GPU limit is too low or no key exists |
+| `alab stop` / `alab status` | Stop everything / show status, memory, queue, tunnel connection and log locations |
+| `alab tunnel set-token` / `alab tunnel check` | Save the tunnel token / check from the internet that `api.llmat.dev` is reachable |
+| `alab bench` | Run benchmarks; results go to `var/bench/` |
+| `alab pack` / `alab unpack` | Build an offline bundle / install it offline on a target machine |
 
-## 7. 隔离与打包
+## 7. Public access and clients
 
-### 7.1 不破坏本机环境的规则
+### 7.1 Why Cloudflare Tunnel
 
-| 规则 | 做法 |
+| Option | Decision |
 | --- | --- |
-| 不使用系统或 Homebrew 的 Python | uv 安装锁定版本的 Python 到 `.tools/python`（设置 `UV_PYTHON_INSTALL_DIR`） |
-| 不使用全局 pip | 依赖装在项目内 `.venv`，由 `uv.lock` 锁定 |
-| 不污染用户缓存目录 | `HF_HOME`、`UV_CACHE_DIR`、`OLLAMA_MODELS`、`XDG_CACHE_HOME` 全部指向 `var/` 或 `.tools/` 下 |
-| 不影响已有的 Ollama | 使用项目自带的 Ollama 二进制，独立端口 8200、独立模型目录；不安装 Ollama.app，不注册后台服务 |
-| 不注册后台服务 | 不安装 LaunchAgent / LaunchDaemon；服务由 `alab serve` 前台或后台启动，pid 记录在 `var/run/` |
-| 不修改 shell 配置 | 不改 `~/.zshrc`；通过 `./alab` 包装脚本或 `source .tools/env.sh` 使用 |
-| 唯一的系统级改动 | GPU 内存上限，临时、显式确认、可恢复（第 4.3 节） |
-| 可完全卸载 | 恢复 GPU 上限（或重启）后删除项目目录即可，T01 验收时检查 `$HOME` 下没有新增文件 |
+| **Cloudflare Tunnel** | **Chosen.** `llmat.dev` DNS is already on Cloudflare (NS `alexa/carter.ns.cloudflare.com`, checked 2026-10-04). cloudflared only makes outbound connections, so no public IP, port forwarding or router changes are needed. Cloudflare manages TLS certificates. The free plan is enough |
+| Router port forwarding + self-signed or Let's Encrypt certificate | Not chosen: exposes the home IP, depends on the network, breaks when the Mac moves |
+| Tailscale Funnel | Not chosen: cannot use our own domain |
+| ngrok and similar | Not chosen: custom domains are paid, and it adds another third party |
+| Self-hosted VPS reverse proxy (frp, etc.) | Not chosen: one more server to maintain |
 
-### 7.2 版本锁定
+The public address is `https://api.llmat.dev/v1` (the subdomain can be changed in the profile).
 
-- uv：版本号和 sha256 写在 `bootstrap.sh` 里。
-- Python：版本写在 `.python-version`。
-- Python 依赖：`uv.lock`。
-- Ollama：版本号和 sha256 写在配置里。
-- 模型：`config/models.toml` 记录 Hugging Face 仓库名、**commit revision** 和每个文件的 sha256，下载后逐个校验。
+### 7.2 Tunnel setup
 
-### 7.3 离线包
+Use a dashboard-managed tunnel (token based) rather than the locally managed kind created with `cloudflared tunnel login`, because the latter writes a certificate into `~/.cloudflared/`, which breaks isolation.
 
-`alab pack --profile mac-24gb` 生成一个 tar 包（约 16–17GB），内容：
+One-time manual steps (done once, documented in T07):
+
+1. In the Cloudflare Zero Trust dashboard, create a tunnel named `agent-lab`.
+2. Add a Public Hostname: `api.llmat.dev` → `http://127.0.0.1:8000`. Cloudflare creates the DNS record automatically.
+3. Copy the tunnel token and run `alab tunnel set-token` on the Mac (reads from stdin, saves to `var/secrets/tunnel-token`).
+
+From then on, `alab serve` runs `cloudflared tunnel run` as a child process, passing the token through the `TUNNEL_TOKEN` environment variable so it never appears in command-line arguments (where `ps` could show it). No `cloudflared service install` and no system services.
+
+Moving to another machine: copy the project (or an offline bundle) and repeat step 3, or generate a new token for the same tunnel in the dashboard.
+
+### 7.3 Cloudflare limits and settings
+
+| Item | Details |
+| --- | --- |
+| 100-second timeout | Cloudflare returns 524 if no response headers arrive within about 100 seconds, and also drops a response after about 100 seconds without data. This cannot be changed on the Free, Pro or Business plans [measured/official]. The gateway's streaming heartbeat handles it (section 6.3) |
+| Response buffering | SSE responses need `Content-Type: text/event-stream` and `Cache-Control: no-cache` to avoid buffering [confirmed in T07] |
+| Rate limiting | Add one WAF rate-limiting rule for `api.llmat.dev` in the dashboard (the free plan includes one) to absorb floods of invalid requests. The threshold must be well above our own normal traffic (this machine handles a few requests per minute at most); the exact value is set in T07 |
+| Caching | Bypass the cache for `api.llmat.dev` (Cache Rule: bypass) |
+| Bot protection | Do not enable anything that shows a challenge page on this subdomain, or requests from Cursor's servers and from opencode will be blocked |
+
+### 7.4 Clients
+
+**Cursor** [measured/official, see references]:
+
+- The "Override OpenAI Base URL" option requires the **Pro plan**.
+- Requests come from Cursor's servers, not from the user's machine, so `localhost` does not work and the endpoint must be public HTTPS. This also means code and conversations pass through Cursor's servers.
+- Setup: Settings → Models → enter the API key (from `alab keys create cursor`) → enable Override OpenAI Base URL with `https://api.llmat.dev/v1` → add the custom model name `qwen3.8-27b`.
+- Streaming is required.
+- Works with: Chat and Agent. Tab completion does not use custom models, and according to user reports, subagents also ignore custom models.
+- **Known issue: Cursor assumes custom models have a 1M context, and there is no setting to change it** [measured/official, Cursor forum]. Cursor will therefore not compact the conversation before 32K, so long sessions will hit the gateway's limit and stall. The gateway returns the standard `context_length_exceeded` error; whether Cursor reacts by compacting is [to verify, T08]. If it does not, the user guide will recommend "one new chat per task".
+
+**opencode** [measured/official, see references]:
+
+- Add a provider of type `@ai-sdk/openai-compatible` to `opencode.json`:
+
+```json
+{
+  "$schema": "https://opencode.ai/config.json",
+  "provider": {
+    "llmat": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "llmat (Qwen3.8-27B)",
+      "options": {
+        "baseURL": "https://api.llmat.dev/v1",
+        "apiKey": "{env:LLMAT_API_KEY}"
+      },
+      "models": {
+        "qwen3.8-27b": {
+          "name": "Qwen3.8 27B",
+          "limit": { "context": 32768, "output": 8192 }
+        }
+      }
+    }
+  }
+}
+```
+
+- `limit.context` must match the profile's `max_context`, so opencode compacts the conversation before reaching the limit. `limit.output` only takes effect when it is below 32000 [measured/official, opencode issue #20078].
+- When opencode runs on the Mac itself, `baseURL` can be `http://127.0.0.1:8000/v1` to skip the round trip through Cloudflare.
+
+**Tool calling (both clients' agent features depend on it):**
+
+This is the biggest technical risk in the design. Qwen models from 3.5 onward emit tool calls in an XML-like format (`<tool_call><function=...><parameter=...>`, the format the `qwen3_coder` parser handles). mlx-lm's server fails to auto-detect this for non-Coder models, and requests with tools come back with empty content [measured/official, mlx-lm issue #1293]. The plan:
+
+1. T04 checks first: force the `qwen3_coder` tool parser in the launch wrapper (through a CLI argument, or by setting `tool_parser_type` in the local model's `tokenizer_config.json`), and check that `tool_calls` come back correctly for both streaming and non-streaming requests.
+2. If mlx-lm's parsing is unreliable in either case, T05 implements parsing in the gateway: the backend only generates text, and the gateway converts tool-call blocks in the model output into OpenAI `tool_calls` (incremental deltas when streaming), verified against a fixed set of test samples.
+3. T08 runs a set of real agent tasks in both Cursor and opencode as acceptance.
+
+### 7.5 Availability
+
+- The service is only up while the Mac is on, awake and running `alab serve`. While `alab serve` runs, `caffeinate -i` prevents idle sleep, but **closing the lid still puts the Mac to sleep** (unless it is on power with an external display).
+- When the Mac is offline, Cloudflare returns an error directly (usually 502 or 530) and clients see a failed request.
+- This is a personal laptop with no availability guarantee; the user guide says so.
+
+## 8. Isolation and packaging
+
+### 8.1 Rules for not disturbing the machine
+
+| Rule | How |
+| --- | --- |
+| Never use the system or Homebrew Python | uv installs a pinned Python into `.tools/python` (via `UV_PYTHON_INSTALL_DIR`) |
+| Never use global pip | Dependencies go into the project's `.venv`, pinned by `uv.lock` |
+| Never write to user cache directories | `HF_HOME`, `UV_CACHE_DIR` and `XDG_CACHE_HOME` all point under `var/` or `.tools/` |
+| cloudflared never touches `~/.cloudflared` | Run with a token; never run `cloudflared tunnel login`; the binary lives in `.tools/` |
+| Never interfere with an existing Ollama or other services | Only local ports 8000 and 8100 are used, and `doctor` checks them |
+| Never register system services | No LaunchAgent / LaunchDaemon, no `cloudflared service install`. Services are started by `alab serve`, with pids in `var/run/` |
+| Never edit shell configuration | `~/.zshrc` is untouched; use the `./alab` wrapper or `source .tools/env.sh` |
+| The only system-level change | The GPU memory limit: temporary, explicitly confirmed, revertible (section 4.3) |
+| Full uninstall | Restore the GPU limit (or reboot), delete the project directory, and delete the tunnel in the Cloudflare dashboard. T01's acceptance checks that nothing new appears under `$HOME` |
+
+### 8.2 Version pinning
+
+- uv and cloudflared: versions and sha256 in `config/tools.toml`.
+- Python: version in `.python-version`.
+- Python dependencies: `uv.lock`.
+- Models: `config/models.toml` records the Hugging Face repo, the **commit revision** and every file's sha256; each file is verified after download.
+
+### 8.3 Offline bundle
+
+`alab pack --profile mac-24gb` builds a tar archive (about 16–17GB):
 
 ```text
-agent-lab-bundle-<版本>-<档位>/
-├── manifest.json        # 版本、档位、每个文件的 sha256
-├── source/              # 仓库代码（git archive）
-├── tools/               # uv 二进制、Python 发行版、（可选）Ollama 二进制
-├── wheels/              # uv.lock 中全部依赖的 macOS arm64 wheel
-└── models/              # 档位所需的模型文件
+agent-lab-bundle-<version>-<profile>/
+├── manifest.json        # version, git commit, profile, minimum macOS version, sha256 of every file
+├── source/              # repository code (git archive)
+├── tools/               # uv, Python distribution, cloudflared
+├── wheels/              # macOS arm64 wheels for everything in uv.lock
+└── models/              # model files the profile needs
 ```
 
-目标机器上执行 `./unpack.sh` 或 `alab unpack`：校验 manifest → 释放到目标目录 → 用本地 wheel 离线安装 → 运行 `alab doctor`。全程不需要联网。
+**The bundle contains no secrets** (neither key hashes nor the tunnel token). On the target machine, `./unpack.sh` checks the chip and macOS version → verifies the manifest → extracts to the target directory → installs offline from the bundled wheels → runs `alab doctor`. Keys and the tunnel token are then created again on the target machine.
 
-限制：MLX 的 wheel 只适用于 Apple Silicon，并有最低 macOS 版本要求。离线包在 manifest 里记录这个最低版本，`unpack` 先检查芯片和系统版本，不满足就停止，不做半安装。
+Limitation: MLX wheels only work on Apple Silicon and have a minimum macOS version. If the target does not meet them, `unpack.sh` stops before installing anything.
 
-### 7.4 部署到其他地方
+### 8.4 Deploying elsewhere
 
-| 目标 | 方式 |
+| Target | How |
 | --- | --- |
-| 另一台 Apple Silicon Mac | 离线包，或 clone 后运行 `bootstrap.sh`。选择与内存匹配的档位（如 `mac-32gb-plus` 可开更大 context 或换 Q5/Q6） |
-| Linux + NVIDIA 服务器 | **v1 不实现**，只预留：网关契约和档位机制与后端无关，将来新增一个指向 vLLM 或 llama.cpp 容器的后端适配器即可，客户端无需改动 |
+| Another Apple Silicon Mac | An offline bundle, or clone and run `bootstrap.sh`. Pick the profile that matches its memory. After setting the tunnel token, `api.llmat.dev` points to the new machine |
+| Linux + NVIDIA server | **Not in v1.** The gateway contract, authentication and tunnel do not depend on the backend, so a future backend pointing at vLLM or similar can be added without changing clients |
 
-## 8. 安全与离线
+## 9. Security
 
-- 服务默认只监听 `127.0.0.1`；监听其他地址时必须配置 API key（第 6.3 节）。
-- 运行时设置 `HF_HUB_OFFLINE=1`、`HF_HUB_DISABLE_TELEMETRY=1`，模型下载只发生在 `alab pull`。
-- 服务运行时不访问外网。T06 包含一次断网运行检查。
-- 日志不记录请求正文，只记录长度、耗时和错误。
+| Threat | Mitigation |
+| --- | --- |
+| Unauthorized use (someone discovers `api.llmat.dev`) | Every request needs an API key; requests without one get 401 at the gateway and never reach the inference server |
+| Brute-forcing keys | Keys are 32 random bytes, so guessing is computationally infeasible. A Cloudflare WAF rate limit absorbs floods (its threshold must sit well above our own traffic, since Cursor's requests share server IPs) |
+| Leaked key | One key per client; `alab keys revoke` takes effect immediately; only hashes are stored |
+| Resource exhaustion (huge requests, request floods) | Token limit, single concurrency, queue cap with 429, Metal memory limit |
+| Local ports reachable from the LAN | The gateway and backend only listen on `127.0.0.1`; public traffic only arrives through the tunnel |
+| Information leaks | `/healthz` exposes no versions or configuration; logs contain no bodies; secrets are never committed, never bundled and never passed as command-line arguments (the tunnel token goes to cloudflared through an environment variable so it does not show in `ps`) |
+| Data privacy | With Cursor, code and conversations pass through Cursor's servers; that is how Cursor works and this design cannot change it. opencode involves no third party apart from Cloudflare terminating TLS |
 
-## 9. 测试与验收
+Also:
 
-| 层次 | 内容 | 运行位置 |
+- The inference server runs with `HF_HUB_OFFLINE=1` and `HF_HUB_DISABLE_TELEMETRY=1`; models are only downloaded by `alab pull`.
+- Without the tunnel (`--no-tunnel`), the whole service can run with no network; T06 includes an offline check.
+
+## 10. Testing and acceptance
+
+| Level | What | Where |
 | --- | --- | --- |
-| 单元测试 | 配置解析、token 限额、参数转换、路径隔离 | GitHub Actions macOS arm64 runner |
-| 集成测试 | 用一个很小的 MLX 模型（如 0.5B 级 4-bit）走通 bootstrap → pull → serve → 请求 → stop | GitHub Actions macOS arm64 runner（runner 内存约 7GB，跑不了 27B） |
-| 设备测试 | 27B 实际运行、context 阶梯、峰值内存、swap、tok/s、思考开关 | 用户的 MacBook Air M5（通过 Remote Control 在本机执行） |
+| Unit tests | Config parsing, authentication, token limit and `max_tokens` clamping, parameter conversion, tool-call parsing, heartbeats, path isolation | GitHub Actions macOS arm64 runner |
+| Integration tests | A tiny MLX model through bootstrap → pull → serve → authenticated requests (streaming and tool calls) → stop | GitHub Actions macOS arm64 runner (about 7GB of memory, cannot run 27B) |
+| Device tests | 27B on the real machine: context ladder, peak memory, swap, tok/s, thinking switch | The user's MacBook Air M5 |
+| End-to-end tests | Real agent tasks from Cursor and opencode through `api.llmat.dev` | The user's Mac + Cursor + opencode |
 
-设备测试的通过标准（T06）：在所选档位下，用满 `max_context` 的请求连续运行 3 次，推理进程峰值内存不超过 GPU 上限，系统 swap 增量小于 1GB，无报错。
+Pass criteria for the device tests (T06): with the final profile, run a multi-turn conversation that fills `max_context` (simulating an agent, reusing the cache each turn) three times in a row. Peak memory of the inference process stays under the GPU limit, system swap grows by less than 1GB, and there are no errors.
 
-## 10. 风险与待验证项
+## 11. Risks and open questions
 
-| 风险 / 待验证 | 影响 | 处理 |
+| Risk / open question | Impact | Handling |
 | --- | --- | --- |
-| mlx-lm 对 Qwen3.8 的最低支持版本 | T04 无法启动 | T04 第一步实测；不行就先用 mlx-vlm 的文本路径或切换 Ollama 默认 |
-| 24GB 实际可用内存比估算少 | 32K 档放不下 | T06 实测后降为 24K 或 16K，或启用 Q3 后备 |
-| 解码速度低于 6 tok/s | 体验差 | 评估 MTP 版本；或提供 Gemma 4 26B-A4B 快速档（T09） |
-| 无风扇降频 | 长任务速度下降 | T06 记录 10 分钟持续负载下的速度曲线 |
-| mlx-lm 尚无 KV 量化参数 | 无法用 8-bit KV 扩大 context | 维持 32K；mlx-lm 发布该功能后再评估 64K |
-| Ollama MLX 引擎下 KV 量化和 `num_ctx` 的行为 | 备选后端内存不可预测 | T07 实测 |
-| 视觉 | v1 不支持 | 将来通过 Ollama 后端或 mlx-vlm 增加，单独开设计 |
+| mlx-lm parses Qwen3.8 tool calls unreliably | Cursor and opencode agents do not work | T04 tests a forced parser; if that fails, T05 parses in the gateway (section 7.4) |
+| Minimum mlx-lm version for Qwen3.8 | T04 cannot start the model | First step of T04; if unsupported, evaluate mlx-vlm's text path |
+| Reusing the prompt cache copies the KV cache | 32K does not fit | First measurement in T06; drop to 24K |
+| Cursor assumes custom models have a 1M context | Long sessions stall in Cursor | T08 checks how Cursor handles `context_length_exceeded`; if it does not compact, the user guide recommends one new chat per task and opencode for long tasks |
+| Agent use is slow overall | A single task can take ten minutes or more | Expectations set in section 5; evaluate MTP (T06) and the fast profile (T10) |
+| Running out of memory causes a kernel panic | Reboot and possible data loss | Metal memory limit plus the gateway's token limit |
+| Cloudflare's 100-second timeout | Connections drop during long prefills | Streaming heartbeats; long non-streaming requests documented |
+| The Mac sleeps or goes offline | Public service unavailable | `caffeinate`; availability documented |
+| Fanless throttling | Slower long tasks | T06 records a 10-minute sustained-load speed curve |
+| mlx-lm has no KV cache quantization yet | Cannot use an 8-bit KV cache to extend context | Keep the current profile; re-evaluate when mlx-lm ships it |
+| Vision | Not in v1 | Add later through mlx-vlm with its own design |
 
-## 11. 参考资料
+## 12. References
 
-- [Qwen/Qwen3.8-27B 模型卡](https://huggingface.co/Qwen/Qwen3.8-27B)
+Model and quantization:
+
+- [Qwen/Qwen3.8-27B model card](https://huggingface.co/Qwen/Qwen3.8-27B)
 - [mlx-community/Qwen3.8-27B-4bit](https://huggingface.co/mlx-community/Qwen3.8-27B-4bit)
-- [Ollama qwen3.8 tags](https://ollama.com/library/qwen3.8/tags)
 - [Qwen3.8-27B on Apple Silicon: MLX Setup, VRAM & Reality](https://www.orcarouter.ai/blog/qwen-3-8-27b-mlx)
 - [Run Qwen3.8-27B on Ollama](https://www.orcarouter.ai/blog/qwen-3-8-27b-ollama)
-- [Best Qwen3.8-27B GGUF: Q2–Q8 质量对比](https://kingy.ai/blog/qwen3-8-27b-best-quantization-gguf/)
+- [Best Qwen3.8-27B GGUF: Q2–Q8 quality comparison](https://kingy.ai/blog/qwen3-8-27b-best-quantization-gguf/)
 - [Qwen3.8 vs Qwen3.6 vs Gemma 4: 24GB GPU Test](https://kingy.ai/blog/qwen3-8-27b-vs-qwen3-6-27b-vs-gemma-4-31b/)
 - [Gemma 4 26B-A4B vs Qwen3.8-27B](https://benchlm.ai/compare/gemma-4-26b-a4b-vs-qwen3-8-27b)
-- [Qwen 3.8 27B 默认过度思考（Simon Willison）](https://simonwillison.net/2026/Aug/16/qwen-38-27b/)
-- [Qwen 3.8 型号列表](https://codersera.com/blog/qwen-3-8-model-lineup-2026/)
-- [M5 MacBook Air 本地 AI 性能](https://www.mindstudio.ai/blog/m5-macbook-air-local-ai-performance)
-- [iogpu.wired_limit_mb 说明](https://modelpiper.com/blog/iogpu-wired-limit-mb-mac)
-- [Ollama MLX runtime 说明](https://github.com/imagewize/ollama-opencode-setup/blob/main/docs/MLX-RUNTIME.md)
-- [mlx-lm HTTP server 参数](https://deepwiki.com/ml-explore/mlx-lm/3.3-http-server)
-- [mlx-lm issue #1308：server 的 KV 量化与思考参数](https://github.com/ml-explore/mlx-lm/issues/1308)
-- [mlx-lm issue #1803：单请求 chat_template_kwargs 绕过 prompt cache](https://github.com/ml-explore/mlx-lm/issues/1803)
+- [Qwen 3.8 27B defaults to overthinking (Simon Willison)](https://simonwillison.net/2026/Aug/16/qwen-38-27b/)
+- [Qwen 3.8 model lineup](https://codersera.com/blog/qwen-3-8-model-lineup-2026/)
+
+Hardware and mlx-lm:
+
+- [M5 MacBook Air local AI performance](https://www.mindstudio.ai/blog/m5-macbook-air-local-ai-performance)
+- [iogpu.wired_limit_mb explained](https://modelpiper.com/blog/iogpu-wired-limit-mb-mac)
+- [mlx-lm HTTP server options](https://deepwiki.com/ml-explore/mlx-lm/3.3-http-server)
+- [mlx-lm issue #1308: KV quantization and thinking options in the server](https://github.com/ml-explore/mlx-lm/issues/1308)
+- [mlx-lm issue #1803: per-request chat_template_kwargs bypass the prompt cache](https://github.com/ml-explore/mlx-lm/issues/1803)
+- [mlx-lm issue #1293: tool-call parsing for non-Coder Qwen 3.5/3.6 models](https://github.com/ml-explore/mlx-lm/issues/1293)
+- [How my local coding agent crashed my Mac: MLX memory management](https://medium.com/@michael.hannecke/how-my-local-coding-agent-crashed-my-mac-and-what-i-learned-about-mlx-memory-management-e0cbad01553c)
+
+Public access and clients:
+
+- [Cloudflare error 524](https://developers.cloudflare.com/support/troubleshooting/http-status-codes/cloudflare-5xx-errors/error-524)
+- [WebSockets and SSE through Cloudflare: the 100-second rule](https://stackharbor.com/en/knowledge-base/cffix-websockets-sse-behind-cloudflare/)
+- [Why localhost doesn't work as OpenAI Base URL in Cursor](https://dev.to/orchidfiles/why-localhost-doesnt-work-as-openai-base-url-in-cursor-and-how-to-fix-it-589e)
+- [Override OpenAI Base URL in Cursor: configuration guide](https://www.coderouter.io/blog/override-openai-base-url-cursor-configuration-guide)
+- [cursor-custom-provider: Cursor's private-network and model-name restrictions](https://github.com/xFurti/cursor-custom-provider)
+- [Cursor forum: custom models set the context window to 1M](https://forum.cursor.com/t/custom-models-set-the-context-window-to-1m/160106)
+- [opencode providers documentation](https://opencode.ai/docs/providers/)
+- [opencode issue #20078: custom providers always send max_tokens=32000](https://github.com/anomalyco/opencode/issues/20078)
