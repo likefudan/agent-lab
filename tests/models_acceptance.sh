@@ -56,7 +56,8 @@ until [ -n "$(partial_bytes)" ]; do
     sleep 0.1
     waited=$((waited + 1))
 done
-kill -INT "$pid"
+# Signal the whole job (its process group), as a terminal does for Ctrl-C.
+kill -INT -- "-$pid"
 status=0
 wait "$pid" || status=$?
 cat "$WORK/first.txt"
@@ -75,7 +76,7 @@ grep -E "^$MODEL +downloaded " "$WORK/models.txt" > /dev/null || fail "state is 
 
 step "second pull downloads nothing"
 in_repo ./alab pull "$MODEL" | tee "$WORK/second.txt"
-grep "downloaded 0.0MB" "$WORK/second.txt" > /dev/null || fail "second pull downloaded something"
+grep "downloaded 0B" "$WORK/second.txt" > /dev/null || fail "second pull downloaded something"
 
 step "wrong sha256 in the registry"
 # Change the hash of the model's config.json, a small file, so the retry is cheap.

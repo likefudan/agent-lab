@@ -185,10 +185,14 @@ def get_entry(model_id: str, path: Path | None = None) -> ModelEntry:
 
 
 def format_size(size: int) -> str:
-    """Bytes as a binary-unit size string; ``parse_size(format_size(n)) >= n`` up to rounding."""
+    """Bytes as a human-readable binary-unit size, e.g. ``"15.0GB"`` (1GB = 1024**3 bytes)."""
     if size >= GIB:
         return f"{size / GIB:.1f}GB"
-    return f"{size / 1024**2:.1f}MB"
+    if size >= 1024**2:
+        return f"{size / 1024**2:.1f}MB"
+    if size >= 1024:
+        return f"{size / 1024:.1f}KB"
+    return f"{size}B"
 
 
 def disk_space_for(total: int) -> str:

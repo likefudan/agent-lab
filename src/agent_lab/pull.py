@@ -39,10 +39,15 @@ CHUNK = 1024**2
 RETRIES = 3
 CONNECT_TIMEOUT = 30.0
 READ_TIMEOUT = 120.0
+NON_TTY_INTERVAL = 30.0  # seconds between progress lines when output is not a terminal
 
 
 class PullError(Exception):
     pass
+
+
+class _RetryableHTTPError(Exception):
+    """A server-side HTTP error (5xx, 429) worth retrying."""
 
 
 class LocalState(StrEnum):
@@ -148,27 +153,29 @@ def local_state(entry: ModelEntry) -> LocalState:
 
 
 class _Progress:
-    """A single updating line on a terminal; silent otherwise (CI logs get one line per file)."""
+    """An updating line on a terminal; otherwise one plain line every NON_TTY_INTERVAL seconds."""
 
     def __init__(self, name: str, total: int, start: int, stream: IO[str]) -> None:
         self.name, self.total, self.done, self.stream = name, total, start, stream
         self.tty = stream.isatty()
         self.started = time.monotonic()
         self.start_bytes = start
-        self.last = 0.0
+        self.last = 0.0 if self.tty else self.started
 
     def update(self, n: int) -> None:
         self.done += n
         now = time.monotonic()
-        if self.tty and now - self.last >= 0.5:
-            self.last = now
-            rate = (self.done - self.start_bytes) / max(now - self.started, 1e-6)
-            pct = 100 * self.done / self.total if self.total else 100.0
-            self.stream.write(
-                f"\r  {self.name}: {format_size(self.done)} / {format_size(self.total)} "
-                f"({pct:.0f}%, {format_size(int(rate))}/s)   "
-            )
-            self.stream.flush()
+        if now - self.last < (0.5 if self.tty else NON_TTY_INTERVAL):
+            return
+        self.last = now
+        rate = (self.done - self.start_bytes) / max(now - self.started, 1e-6)
+        pct = 100 * self.done / self.total if self.total else 100.0
+        line = (
+            f"  {self.name}: {format_size(self.done)} / {format_size(self.total)} "
+            f"({pct:.0f}%, {format_size(int(rate))}/s)"
+        )
+        self.stream.write(f"\r{line}   " if self.tty else f"{line}\n")
+        self.stream.flush()
 
     def close(self) -> None:
         if self.tty:
@@ -205,14 +212,20 @@ def _hf_fetch(url: str, offset: int) -> Iterator[tuple[int, Iterator[bytes]]]:
         headers["Range"] = f"bytes={offset}-"
     timeout = httpx2.Timeout(READ_TIMEOUT, connect=CONNECT_TIMEOUT)
     with get_session().stream("GET", url, headers=headers, timeout=timeout) as response:
-        hf_raise_for_status(response)
-        yield response.status_code, response.iter_bytes(CHUNK)
+        status = response.status_code
+        if status == 429 or status >= 500:
+            raise _RetryableHTTPError(f"HTTP {status} from {url}")
+        try:
+            hf_raise_for_status(response)
+        except Exception as exc:
+            raise PullError(f"cannot download {url}: {exc}") from exc
+        yield status, response.iter_bytes(CHUNK)
 
 
 def _transient_errors() -> tuple[type[BaseException], ...]:
     import httpx2
 
-    return (httpx2.TransportError, OSError)
+    return (httpx2.TransportError, _RetryableHTTPError, OSError)
 
 
 def file_url(entry: ModelEntry, f: ModelFile, endpoint: str | None = None) -> str:
@@ -238,6 +251,7 @@ def _download(
             partial.unlink()
             offset = 0
         if offset == f.size:
+            partial.touch()  # an empty file needs no request
             return
         if offset:
             print(

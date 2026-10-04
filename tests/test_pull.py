@@ -223,8 +223,12 @@ def test_stray_partials_are_removed(lab_home: Path) -> None:
 
 class _RangeHandler(http.server.BaseHTTPRequestHandler):
     content: ClassVar[dict[str, bytes]] = {}
+    fail_next: ClassVar[list[int]] = []  # status codes to answer with before serving
 
     def do_GET(self) -> None:
+        if self.fail_next:
+            self.send_error(self.fail_next.pop(0))
+            return
         name = self.path.split(f"/resolve/{REV}/", 1)[1]
         data = self.content.get(name)
         if data is None:
@@ -251,6 +255,7 @@ def local_hub(monkeypatch: pytest.MonkeyPatch) -> Iterator[str]:
         monkeypatch.delenv(var, raising=False)
     monkeypatch.setenv("NO_PROXY", "127.0.0.1,localhost")
     _RangeHandler.content = CONTENT
+    _RangeHandler.fail_next = []
     server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), _RangeHandler)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
@@ -274,8 +279,38 @@ def test_http_download_resumes_with_range(lab_home: Path, local_hub: str) -> Non
 
 def test_http_404_is_reported(lab_home: Path, local_hub: str) -> None:
     entry = _entry({"missing.bin": b"x"})
-    with pytest.raises(Exception, match="404"):
+    with pytest.raises(pull.PullError, match="404"):
         pull.pull(entry, endpoint=local_hub, out=io.StringIO())
+
+
+def test_http_server_errors_are_retried(
+    lab_home: Path, local_hub: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr("agent_lab.pull.time.sleep", lambda s: None)
+    _RangeHandler.fail_next = [503, 429]
+    out = io.StringIO()
+    pull.pull(_entry({"config.json": CONTENT["config.json"]}), endpoint=local_hub, out=out)
+    assert "HTTP 503" in out.getvalue()
+    assert "HTTP 429" in out.getvalue()
+
+
+def test_empty_file(lab_home: Path) -> None:
+    hub = FakeHub({"empty.txt": b""})
+    entry = _entry({"empty.txt": b""})
+    _pull(entry, hub)
+    assert (lab_home / "var" / "models" / "tiny" / "empty.txt").read_bytes() == b""
+    assert hub.requests == []
+
+
+def test_progress_lines_without_a_terminal(monkeypatch: pytest.MonkeyPatch) -> None:
+    clock = iter([0.0, 10.0, 31.0, 40.0, 62.0])
+    monkeypatch.setattr("agent_lab.pull.time.monotonic", lambda: next(clock))
+    out = io.StringIO()
+    progress = pull._Progress("f", 4 * 1024**2, 0, out)
+    for _ in range(4):
+        progress.update(1024**2)
+    lines = out.getvalue().splitlines()
+    assert lines == ["  f: 2.0MB / 4.0MB (50%, 66.1KB/s)", "  f: 4.0MB / 4.0MB (100%, 66.1KB/s)"]
 
 
 # --- CLI ------------------------------------------------------------------------------

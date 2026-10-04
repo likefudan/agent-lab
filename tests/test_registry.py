@@ -123,3 +123,17 @@ def test_render_round_trip_and_write(tmp_path: Path) -> None:
     assert list(loaded) == ["another", "tiny"]
     assert loaded["tiny"].description == "new"
     assert target.read_text().startswith(registry.HEADER)
+
+
+@pytest.mark.parametrize(
+    ("size", "text"),
+    [
+        (0, "0B"),
+        (1023, "1023B"),
+        (4932, "4.8KB"),
+        (335_450_584, "319.9MB"),
+        (16 * 1024**3, "16.0GB"),
+    ],
+)
+def test_format_size(size: int, text: str) -> None:
+    assert registry.format_size(size) == text
