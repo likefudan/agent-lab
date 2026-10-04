@@ -14,17 +14,20 @@
 
 | 编号 | 标题 | 依赖 | 需要设备测试 | 状态 |
 | --- | --- | --- | --- | --- |
-| T00 | 技术设计与任务卡（本 PR） | — | 否 | 已合入 |
+| T00 | 技术设计与任务卡（PR #2，以及本次修订） | — | 否 | 已合入 |
 | [T01](T01-skeleton-and-toolchain.md) | 项目骨架与隔离工具链 | T00 | 是（隔离检查） | 待开始 |
 | [T02](T02-model-registry-and-pull.md) | 模型注册表与下载 | T01 | 是（下载 27B） | 待开始 |
 | [T03](T03-gpu-limit-and-doctor.md) | GPU 内存上限管理与环境检查 | T01 | 是 | 待开始 |
-| [T04](T04-mlx-backend.md) | mlx-lm 后端与进程管理 | T02、T03 | 是 | 待开始 |
-| [T05](T05-gateway.md) | OpenAI 兼容网关 | T04 | 是（冒烟测试） | 待开始 |
+| [T04](T04-mlx-backend.md) | mlx-lm 后端与进程管理（含工具调用验证） | T02、T03 | 是 | 待开始 |
+| [T05](T05-gateway.md) | OpenAI 兼容网关（鉴权、限额、工具调用、心跳） | T04 | 是（冒烟测试） | 待开始 |
 | [T06](T06-benchmark-and-profile.md) | 基准测试与档位定稿 | T05 | 是（主要工作在设备上） | 待开始 |
-| [T07](T07-ollama-backend.md) | Ollama 备选后端与后端对比 | T06 | 是 | 待开始 |
-| [T08](T08-offline-bundle.md) | 离线打包与迁移 | T06（T07 可选） | 是 | 待开始 |
-| [T09](T09-fast-profile.md) | 快速档模型评估（Gemma 4 26B-A4B） | T06 | 是 | 待开始，可选 |
-| [T10](T10-user-guide.md) | 使用文档与客户端接入 | T06 | 否 | 待开始 |
+| [T07](T07-public-access-tunnel.md) | 公网访问：api.llmat.dev（Cloudflare Tunnel） | T05（建议 T06 之后） | 是，含一次 Cloudflare 后台操作 | 待开始 |
+| [T08](T08-client-integration.md) | Cursor 与 opencode 接入 | T07 | 是（端到端） | 待开始 |
+| [T09](T09-offline-bundle.md) | 离线打包与迁移 | T07 | 是 | 待开始 |
+| [T10](T10-fast-profile.md) | 快速档模型评估（Gemma 4 26B-A4B） | T08 | 是 | 待开始，可选 |
+| [T11](T11-user-guide.md) | 使用文档 | T08 | 是（按文档走一遍） | 待开始 |
+
+Ollama 后端在 2026-10-04 的修订中移除，原 T07 卡片已删除。
 
 ## 依赖关系
 
@@ -37,20 +40,24 @@ flowchart LR
     T04 --> T05
     T05 --> T06
     T06 --> T07
-    T06 --> T08
-    T06 --> T09
-    T06 --> T10
-    T07 -.可选.-> T08
+    T07 --> T08
+    T07 --> T09
+    T08 --> T10
+    T08 --> T11
 ```
 
-T02 和 T03 可以并行。T07、T08、T09、T10 在 T06 之后都可以并行。
+T02 和 T03 可以并行；T08 和 T09 可以并行；T10 和 T11 可以并行。
 
 ## 里程碑
 
-- **M1 能用（T01–T05）**：在本机一条命令启动 Qwen3.8-27B，通过 `127.0.0.1:8000` 的 OpenAI 兼容接口对话。
-- **M2 定稿（T06）**：用实测数据确定 context 档位、GPU 上限和默认后端参数。
-- **M3 可迁移（T07、T08、T10）**：有备选后端，能打离线包部署到其他 Mac，有使用文档。
+- **M1 本机能用（T01–T05）**：一条命令启动 Qwen3.8-27B，通过 `127.0.0.1:8000` 带 key 调用，工具调用可用。
+- **M2 定稿（T06）**：用实测数据确定 context 档位和内存参数。
+- **M3 对外可用（T07、T08）**：Cursor 和 opencode 通过 `https://api.llmat.dev/v1` 接入。
+- **M4 可迁移（T09、T11）**：能打离线包部署到其他 Mac，有完整使用文档。
 
-## 设备测试的执行方式
+## 需要你本人操作的步骤
 
-需要在 Mac 上运行的步骤，通过 Remote Control 在本机的仓库目录里执行，或由你本人按 PR 描述中的命令运行后把输出贴回。涉及 `sudo` 的命令（只有 `alab gpu-limit apply/revert`）一律由你本人在终端里确认执行。
+- `alab gpu-limit apply/revert`：涉及 `sudo`，一律由你本人在终端里确认执行。
+- T07：在 Cloudflare 后台创建 tunnel、添加 `api.llmat.dev` 的 Public Hostname、复制 token。
+- T08：Cursor 需要 Pro 计划，在 Cursor 设置里填 key 和 base URL。
+- 其余设备测试可以通过 Remote Control 在你的 Mac 上执行，或由你按 PR 描述中的命令运行后把输出贴回。
