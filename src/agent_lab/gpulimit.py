@@ -8,6 +8,7 @@ Nothing here installs anything that would apply it at boot.
 
 from __future__ import annotations
 
+import importlib.metadata
 import platform
 import shlex
 import subprocess
@@ -63,10 +64,11 @@ def read_metal_info() -> MetalInfo:
         info = mx.device_info(mx.gpu)
     except Exception as exc:  # MLX raises plain RuntimeErrors from the C++ side
         return MetalInfo(None, f"MLX could not read the Metal device: {exc}")
+    version = importlib.metadata.version("mlx")
     value = info.get("max_recommended_working_set_size")
     if not isinstance(value, int) or value <= 0:
-        return MetalInfo(None, f"MLX {mx.__version__} did not report the recommended working set")
-    return MetalInfo(value, f"MLX {mx.__version__}")
+        return MetalInfo(None, f"MLX {version} did not report the recommended working set")
+    return MetalInfo(value, f"MLX {version}")
 
 
 def memory_bytes() -> int | None:
