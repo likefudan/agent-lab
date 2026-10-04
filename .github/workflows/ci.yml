@@ -43,3 +43,11 @@ jobs:
       - uses: actions/checkout@v5
       - name: T01 acceptance checks
         run: tests/acceptance.sh
+
+  models:
+    name: Model download acceptance
+    runs-on: macos-15  # Apple Silicon (arm64)
+    steps:
+      - uses: actions/checkout@v5
+      - name: T02 acceptance checks (downloads the CI model)
+        run: tests/models_acceptance.sh
