@@ -250,6 +250,8 @@ def port_in_use(port: int, host: str = "127.0.0.1") -> bool:
         if probe.connect_ex((host, port)) == 0:
             return True
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
+        # Like the servers themselves, ignore connections lingering in TIME_WAIT.
+        probe.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         try:
             probe.bind((host, port))
         except OSError:
