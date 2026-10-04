@@ -4,7 +4,9 @@ version = "0.1.0"
 description = "Self-contained local LLM serving on Apple Silicon: Qwen3.8-27B with mlx-lm behind an OpenAI-compatible gateway."
 readme = "README.md"
 requires-python = "==3.14.*"
-dependencies = []
+dependencies = [
+    "huggingface-hub>=2.1.1",
+]
 
 [project.scripts]
 alab = "agent_lab.cli:main"
@@ -36,3 +38,8 @@ files = ["src", "tests"]
 testpaths = ["tests"]
 cache_dir = "var/cache/pytest"
 addopts = "-ra"
+
+[[tool.mypy.overrides]]
+# huggingface_hub.utils re-exports its helpers lazily without __all__-style markers.
+module = "huggingface_hub.*"
+implicit_reexport = true

@@ -35,6 +35,10 @@ def tools_toml() -> Path:
     return config_dir() / "tools.toml"
 
 
+def models_toml() -> Path:
+    return config_dir() / "models.toml"
+
+
 def python_version_file() -> Path:
     return home() / ".python-version"
 
