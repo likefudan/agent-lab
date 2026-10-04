@@ -7,11 +7,15 @@ A self-contained, packable setup for running local LLMs on Apple Silicon: Qwen3.
 ```sh
 git clone https://github.com/likefudan/agent-lab.git && cd agent-lab
 ./bootstrap.sh     # installs uv, cloudflared, Python and dependencies inside this directory
-./alab doctor      # checks the chip, memory, macOS version, disk space and toolchain
+./alab doctor      # checks the chip, memory, GPU limit, ports, disk space and toolchain
 ./alab pull        # downloads and verifies Qwen3.8-27B (about 16GB) into var/models/
 ```
 
 `alab pull` resumes where it stopped if interrupted (Ctrl-C or a dropped connection); run it again. `alab models` lists the models in [`config/models.toml`](config/models.toml) and whether each is downloaded and verified.
+
+### GPU memory limit
+
+macOS only lets the GPU wire part of unified memory, which is too little for the 27B model. `./alab gpu-limit show` prints the current limit and what the profile needs. `./alab gpu-limit apply` raises it to the profile's `gpu_wired_limit_mb` with `sudo sysctl iogpu.wired_limit_mb=<value>`, after showing the exact command and asking for confirmation; it never goes above physical memory minus 3GB. The change lasts until reboot, and `./alab gpu-limit revert` restores the system default now. This is the only change agent-lab makes outside its directory.
 
 Everything is installed under `.tools/`, `.venv/` and `var/` in this directory; nothing is written to your home directory or shell configuration. To uninstall, delete the directory. Use `./alab` (or `source .tools/env.sh` in a shell) to run commands with the project's own environment.
 

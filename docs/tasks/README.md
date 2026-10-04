@@ -17,7 +17,7 @@ This directory splits [`docs/design.md`](../design.md) into tasks that can each 
 | T00 | Design and task cards (PR #2 and this revision) | — | No | Merged |
 | [T01](T01-skeleton-and-toolchain.md) | Project skeleton and isolated toolchain | T00 | Yes (isolation check) | Merged |
 | [T02](T02-model-registry-and-pull.md) | Model registry and downloads | T01 | Yes (download the 27B) | Merged |
-| [T03](T03-gpu-limit-and-doctor.md) | GPU memory limit and environment checks | T01 | Yes | Not started |
+| [T03](T03-gpu-limit-and-doctor.md) | GPU memory limit and environment checks | T01 | Yes | In progress |
 | [T04](T04-mlx-backend.md) | mlx-lm backend and process management (incl. tool-call check) | T02, T03 | Yes | Not started |
 | [T05](T05-gateway.md) | OpenAI-compatible gateway (auth, limits, tool calls, heartbeats) | T04 | Yes (smoke test) | Not started |
 | [T06](T06-benchmark-and-profile.md) | Benchmarks and final profile | T05 | Yes (mostly on the device) | Not started |

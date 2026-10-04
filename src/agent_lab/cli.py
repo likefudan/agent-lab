@@ -11,7 +11,7 @@ import argparse
 import platform
 import sys
 
-from agent_lab import __version__, config, doctor, paths, pull, registry
+from agent_lab import __version__, config, doctor, gpulimit, paths, pull, registry
 
 
 def _cmd_version(args: argparse.Namespace) -> int:
@@ -95,6 +95,25 @@ def _cmd_models_lock(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_gpu_limit(args: argparse.Namespace) -> int:
+    try:
+        if args.gpu_command == "revert":
+            gpulimit.revert(assume_yes=args.yes)
+            return 0
+        profile = config.load_profile(args.profile)
+        if args.gpu_command == "apply":
+            gpulimit.apply(profile, assume_yes=args.yes)
+        else:
+            gpulimit.show(profile)
+    except (config.ConfigError, gpulimit.GpuLimitError) as exc:
+        print(f"alab gpu-limit: {exc}", file=sys.stderr)
+        return 1
+    except KeyboardInterrupt:
+        print("\ncancelled; nothing was changed", file=sys.stderr)
+        return 130
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="alab", description="Run Qwen3.8-27B locally with mlx-lm behind an API gateway."
@@ -133,6 +152,25 @@ def build_parser() -> argparse.ArgumentParser:
         "--write", action="store_true", help="update config/models.toml instead of printing"
     )
     lock.set_defaults(func=_cmd_models_lock)
+
+    p = sub.add_parser(
+        "gpu-limit", help="show, temporarily raise or restore the GPU wired memory limit"
+    )
+    p.add_argument("--profile", default=config.DEFAULT_PROFILE, help="profile to compare with")
+    p.set_defaults(func=_cmd_gpu_limit, gpu_command="show")
+    gpu_sub = p.add_subparsers(dest="gpu_command", metavar="<command>")
+    gpu_show = gpu_sub.add_parser(
+        "show", help="show the limit and what the profile needs (the default)"
+    )
+    gpu_apply = gpu_sub.add_parser(
+        "apply", help="raise the limit to the profile's value with sudo (until reboot)"
+    )
+    for command in (gpu_show, gpu_apply):
+        # SUPPRESS keeps `alab gpu-limit --profile x apply` from being reset to the default.
+        command.add_argument("--profile", default=argparse.SUPPRESS, help="profile to use")
+    gpu_revert = gpu_sub.add_parser("revert", help="restore the system default with sudo")
+    for command in (gpu_apply, gpu_revert):
+        command.add_argument("--yes", action="store_true", help="skip the confirmation prompt")
     return parser
 
 
