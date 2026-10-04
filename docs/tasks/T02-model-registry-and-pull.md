@@ -1,40 +1,40 @@
-# T02 模型注册表与下载
+# T02 Model registry and downloads
 
-- 依赖：T01
-- 对应设计：第 3.2、8.2 节
-- 预计规模：中
+- Depends on: T01
+- Design sections: 3.2, 8.2
+- Size: medium
 
-## 目标
+## Goal
 
-用一个锁定版本、可校验的注册表来管理模型文件，下载结果可复现，离线包（T09）可以直接复用。
+Manage model files through a pinned, verifiable registry, so downloads are reproducible and the offline bundle (T09) can reuse them directly.
 
-## 范围
+## Scope
 
-做：
+In scope:
 
-1. `config/models.toml`，每个条目包含：`id`、Hugging Face 仓库名、**commit revision**、文件列表及每个文件的 sha256 和大小、下载所需磁盘空间、说明。首批条目：
-   - `qwen3.8-27b-mlx-4bit`：`mlx-community/Qwen3.8-27B-4bit`；
-   - 一个用于 CI 的极小 MLX 模型（0.5B 级 4-bit），供 T04/T05 的集成测试使用。
-2. `alab pull <model-id>`：
-   - 下载到 `var/models/<model-id>/`（通过 `huggingface_hub`，`HF_HOME` 已在 T01 中指向项目内）；
-   - 下载前检查磁盘剩余空间，不足时直接报错；
-   - 支持断点续传；
-   - 下载后逐个校验 sha256，校验失败删除对应文件并报错；
-   - 已存在且校验通过时跳过。
-3. `alab models`：列出注册表条目及本地状态（未下载 / 已下载 / 校验失败）。
-4. 一个维护脚本或子命令（如 `alab models lock <id>`），从 Hugging Face 读取指定 revision 的文件清单和 sha256，生成注册表条目，避免手工填写。
+1. `config/models.toml`. Each entry has: `id`, Hugging Face repo, **commit revision**, the file list with each file's sha256 and size, disk space needed, and a description. Initial entries:
+   - `qwen3.8-27b-mlx-4bit`: `mlx-community/Qwen3.8-27B-4bit`;
+   - a tiny MLX model for CI (0.5B-class, 4-bit), used by the T04/T05 integration tests.
+2. `alab pull <model-id>`:
+   - downloads into `var/models/<model-id>/` (via `huggingface_hub`; T01 already points `HF_HOME` inside the project);
+   - checks free disk space first and fails early if it is not enough;
+   - resumes interrupted downloads;
+   - verifies every file's sha256 afterwards; on a mismatch, deletes that file and fails;
+   - skips files that already exist and verify.
+3. `alab models`: lists registry entries with their local state (not downloaded / downloaded / failed verification).
+4. A maintenance command (for example `alab models lock <id>`) that reads the file list and sha256 for a given revision from Hugging Face and generates the registry entry, so nobody types hashes by hand.
 
-不做：模型转换（如 Q3 自转换，留到 T06 需要时再做）。
+Out of scope: model conversion (such as a self-converted Q3 build; done in T06 only if needed).
 
-## 验收标准
+## Acceptance criteria
 
-- [ ] `alab pull` 下载 CI 小模型成功并通过校验（CI 中运行）。
-- [ ] 修改注册表中某个 sha256 后再次 `alab pull`，能检测出不一致并报错。
-- [ ] 下载过程中中断（Ctrl-C），再次执行能继续而不是从头开始。
-- [ ] 下载后 `$HOME/.cache/huggingface` 不存在新增内容。
-- [ ] 设备测试：在 MacBook Air M5 上下载 `qwen3.8-27b-mlx-4bit`，贴出耗时、占用空间和校验结果。
-- [ ] CI 全部通过。
+- [ ] `alab pull` downloads and verifies the CI model (runs in CI).
+- [ ] After changing one sha256 in the registry, `alab pull` detects the mismatch and fails.
+- [ ] After interrupting a download (Ctrl-C), running it again resumes instead of starting over.
+- [ ] Nothing new appears under `$HOME/.cache/huggingface`.
+- [ ] Device test: download `qwen3.8-27b-mlx-4bit` on the MacBook Air M5 and paste the time taken, disk usage and verification result.
+- [ ] CI passes.
 
-## 备注
+## Notes
 
-- mlx-community 的 4-bit 仓库包含视觉塔权重（约 0.9GB）。本任务仍然完整下载，以便将来支持视觉；纯文本加载时 mlx-lm 会忽略这部分权重，这一点在 T04 中验证。
+- The mlx-community 4-bit repo includes the vision tower weights (about 0.9GB). This task still downloads everything so vision can be added later; mlx-lm ignores those weights when loading text-only, which T04 verifies.

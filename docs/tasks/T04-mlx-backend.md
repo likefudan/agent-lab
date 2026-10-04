@@ -1,42 +1,42 @@
-# T04 mlx-lm 后端与进程管理
+# T04 mlx-lm backend and process management
 
-- 依赖：T02、T03
-- 对应设计：第 3.3、5、6.1、6.4、6.5、7.4 节
-- 预计规模：中
+- Depends on: T02, T03
+- Design sections: 3.3, 5, 6.1, 6.4, 6.5, 7.4
+- Size: medium
 
-## 目标
+## Goal
 
-用一条命令在本机启动、停止和查看 mlx-lm 推理服务；确认 Qwen3.8-27B 能在锁定版本的 mlx-lm 上以纯文本方式运行，并且**工具调用能被正确解析**。
+Start, stop and inspect the mlx-lm inference server with one command; confirm that Qwen3.8-27B runs text-only on a pinned mlx-lm version and that **tool calls are parsed correctly**.
 
-## 范围
+## Scope
 
-做：
+In scope:
 
-1. **第一步，先验证再写代码**，结论写进 PR 描述：
-   - Qwen3.8-27B 在 mlx-lm 中的支持情况（`config.json` 中的 `model_type`、最低 mlx-lm 版本），在 `pyproject.toml` 中锁定版本；
-   - 工具调用：显式指定 `qwen3_coder` 解析器（CLI 参数，或在本地模型目录的 `tokenizer_config.json` 中设置 `tool_parser_type`）后，分别用非流式和流式请求测试，返回的 `tool_calls` 是否正确（函数名、参数 JSON、多个工具调用、参数中含换行和引号）。
-   - 如果模型本身不受支持，停止本任务并在 PR 中说明，按设计第 11 节调整计划。如果只是工具调用解析不可靠，继续本任务，并在 PR 中明确写出"T05 需要实现网关侧解析"。
-2. 启动包装 `agent_lab.backend.launch`：先设置 Metal 内存上限（`mx.set_memory_limit()` 或当前 mlx 的同等接口，取档位的 `metal_memory_limit`），再在同一进程内启动 `mlx_lm.server`。参数全部来自档位：
-   - 模型路径指向 `var/models/<id>`；
-   - 只监听 `127.0.0.1`，端口 8100；
-   - `--decode-concurrency 1`、`--prompt-concurrency 1`；
-   - `--prefill-step-size`、`--prompt-cache-size`、`--prompt-cache-bytes` 取档位值；
-   - `--chat-template-args '{"enable_thinking": false}'` 作为默认；
-   - 采样参数默认值使用模型卡的非思考推荐值；
-   - 设置 `HF_HUB_OFFLINE=1`。
-3. 进程管理：pid 写入 `var/run/`，日志写入 `var/logs/`（按天滚动，不记录请求正文）；启动后轮询健康检查，超时则停止进程并报错；`stop` 先发 SIGTERM，超时再 SIGKILL；`status` 显示 pid、端口、内存占用（RSS）和日志路径。
-4. 启动前调用 T03 的检查：GPU 上限不满足档位要求时拒绝启动（可用 `--force` 跳过，并打印警告）。
-5. 本任务里 `alab serve` 只启动后端；T05 加入网关后，`serve` 再改为同时启动两者。
+1. **Verify before writing code**, and put the findings in the PR description:
+   - Qwen3.8-27B support in mlx-lm (`model_type` in `config.json`, minimum mlx-lm version); pin that version in `pyproject.toml`.
+   - Tool calls: force the `qwen3_coder` parser (CLI argument, or `tool_parser_type` in the local model's `tokenizer_config.json`), then test non-streaming and streaming requests. Check that `tool_calls` come back correctly: function name, argument JSON, multiple tool calls, and arguments containing newlines and quotes.
+   - If the model itself is not supported, stop this task, explain in the PR, and adjust the plan per design section 11. If only tool-call parsing is unreliable, finish this task and state clearly in the PR that "T05 must implement parsing in the gateway".
+2. A launch wrapper, `agent_lab.backend.launch`, that first sets the Metal memory limit (`mx.set_memory_limit()` or the current equivalent, using the profile's `metal_memory_limit`) and then starts `mlx_lm.server` in the same process. All arguments come from the profile:
+   - model path `var/models/<id>`;
+   - listen on `127.0.0.1` only, port 8100;
+   - `--decode-concurrency 1` and `--prompt-concurrency 1`;
+   - `--prefill-step-size`, `--prompt-cache-size` and `--prompt-cache-bytes` from the profile;
+   - `--chat-template-args '{"enable_thinking": false}'` by default;
+   - default sampling parameters from the model card's non-thinking recommendations;
+   - `HF_HUB_OFFLINE=1`.
+3. Process management: pid in `var/run/`, logs in `var/logs/` (rotated daily, no request bodies). After start, poll the health check; on timeout, stop the process and fail. `stop` sends SIGTERM, then SIGKILL after a timeout. `status` shows pid, port, memory (RSS) and log path.
+4. Before starting, run T03's checks: refuse to start if the GPU limit is below what the profile needs (`--force` overrides this with a warning).
+5. In this task `alab serve` only starts the backend; T05 changes it to start the gateway as well.
 
-不做：网关、鉴权、token 限额（T05）；tunnel（T07）；基准测试（T06）。
+Out of scope: the gateway, authentication and the token limit (T05); the tunnel (T07); benchmarks (T06).
 
-## 验收标准
+## Acceptance criteria
 
-- [ ] CI 集成测试：用 T02 的小模型完成 `serve` → 发送一条对话请求 → `status` → `stop`，并确认进程已退出、端口已释放。
-- [ ] 重复 `serve` 时检测到已在运行，不会启动第二个进程。
-- [ ] 后端进程意外退出后，`status` 能报告异常并给出日志路径。
-- [ ] 超过 Metal 内存上限时，后端进程报错退出或返回错误，而不是让系统 panic（用小模型和很低的上限在 CI 中验证）。
-- [ ] 设备测试：在 MacBook Air M5 上应用 GPU 上限后，用 27B 模型完成一次短对话，贴出：mlx-lm 版本、加载耗时、RSS 内存、一次约 200 token 回答的生成速度；确认默认不输出思考内容。
-- [ ] 设备测试：确认纯文本加载时视觉塔权重没有被加载（对比 RSS 或日志）。
-- [ ] 设备测试：第 1 步工具调用验证的完整请求和响应样例贴在 PR 中。
-- [ ] CI 全部通过。
+- [ ] CI integration test: with T02's tiny model, run `serve` → one chat request → `status` → `stop`, and confirm the process has exited and the port is free.
+- [ ] Running `serve` twice detects the running instance and does not start a second process.
+- [ ] If the backend exits unexpectedly, `status` reports it and shows the log path.
+- [ ] Exceeding the Metal memory limit makes the backend raise or return an error rather than panicking the system (verified in CI with the tiny model and a very low limit).
+- [ ] Device test: on the MacBook Air M5 with the GPU limit applied, hold a short conversation with the 27B model and paste the mlx-lm version, load time, RSS, and generation speed for a roughly 200-token answer; confirm no thinking content is produced by default.
+- [ ] Device test: confirm the vision tower weights are not loaded in text-only mode (compare RSS or logs).
+- [ ] Device test: paste the full requests and responses from the tool-call check in step 1 into the PR.
+- [ ] CI passes.

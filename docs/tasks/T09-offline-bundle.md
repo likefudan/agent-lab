@@ -1,35 +1,35 @@
-# T09 离线打包与迁移
+# T09 Offline bundle and migration
 
-- 依赖：T07
-- 对应设计：第 8.3、8.4 节
-- 预计规模：中
+- Depends on: T07
+- Design sections: 8.3, 8.4
+- Size: medium
 
-## 目标
+## Goal
 
-把一个档位的完整运行环境打成单个离线包，在另一台 Apple Silicon Mac 上无需联网即可部署运行。
+Pack the complete runtime for one profile into a single offline bundle that can be deployed and run on another Apple Silicon Mac without network access.
 
-## 范围
+## Scope
 
-做：
+In scope:
 
-1. `alab pack --profile <档位> [--output <路径>]`，生成 `agent-lab-bundle-<版本>-<档位>.tar`，结构按设计第 7.3 节：
-   - `source/`：`git archive` 导出的当前提交；
-   - `tools/`：uv 二进制、Python 发行版、cloudflared 二进制；
-   - `wheels/`：按 `uv.lock` 导出的全部 macOS arm64 wheel（`.venv` 不可迁移，不打包，在目标机器上用这些 wheel 重建）；
-   - `models/`：档位所需的模型文件；
-   - `manifest.json`：版本、git commit、档位、最低 macOS 版本、每个文件的 sha256 和大小；
-   - **不包含任何密钥**：`var/secrets/` 整个目录不打包，打包后自动扫描包内容确认没有 key 哈希和 tunnel token。
-2. 包内附带 `unpack.sh`（不依赖目标机器上的任何 Python）：检查芯片和 macOS 版本 → 检查磁盘空间 → 校验 manifest → 释放到目标目录 → 用本地 wheel 离线安装 → 运行 `alab doctor`。任一步失败都停止，不留下半安装状态。
-3. 打包前检查：工作区有未提交改动时拒绝打包（可用 `--allow-dirty` 跳过并在 manifest 中标注）。
-4. 支持把大包拆分成多个分片（如每片 4GB），方便用 U 盘或网盘传输，`unpack.sh` 自动合并。
+1. `alab pack --profile <profile> [--output <path>]` builds `agent-lab-bundle-<version>-<profile>.tar`, laid out as in design section 8.3:
+   - `source/`: the current commit via `git archive`;
+   - `tools/`: the uv binary, the Python distribution and the cloudflared binary;
+   - `wheels/`: macOS arm64 wheels for everything in `uv.lock` (`.venv` is not relocatable, so it is not bundled; the target rebuilds it from these wheels);
+   - `models/`: the model files the profile needs;
+   - `manifest.json`: version, git commit, profile, minimum macOS version, and every file's sha256 and size;
+   - **no secrets**: `var/secrets/` is never included, and after packing the bundle is scanned to confirm it contains no key hashes or tunnel token.
+2. An `unpack.sh` inside the bundle (needs no Python on the target): check chip and macOS version → check disk space → verify the manifest → extract to the target directory → install offline from the bundled wheels → run `alab doctor`. Any failure stops the process without leaving a half-installed copy.
+3. Refuse to pack with uncommitted changes in the working tree (`--allow-dirty` overrides this and marks it in the manifest).
+4. Optionally split the bundle into parts (for example 4GB each) for USB drives or cloud storage; `unpack.sh` joins them automatically.
 
-不做：Linux/NVIDIA 目标（设计第 8.4 节明确不在 v1 范围内）；自动更新。
+Out of scope: Linux/NVIDIA targets (design section 8.4 rules them out for v1); automatic updates.
 
-## 验收标准
+## Acceptance criteria
 
-- [ ] CI：用小模型档位打包，在同一 runner 上禁止网络（用 macOS `sandbox-exec` 的禁网策略运行，或设置无效代理）后解包、启动服务并完成一次请求。
-- [ ] 篡改包内任一文件后，`unpack.sh` 校验失败并停止。
-- [ ] 包内不含 `var/secrets/` 下的任何文件。
-- [ ] 隔离检查：解包和运行过程中 `$HOME` 下没有新增文件（GPU 上限命令除外，它不写文件）。
-- [ ] 设备测试：在 MacBook Air M5 上打出 `mac-24gb` 的完整包，解包到另一个目录（模拟另一台机器），断网后用 `--no-tunnel` 启动并完成一次对话（新建 key），贴出包大小和各步骤耗时。
-- [ ] CI 全部通过。
+- [ ] CI: pack a profile that uses the tiny model, then on the same runner with networking blocked (macOS `sandbox-exec` with a no-network policy, or an invalid proxy) unpack it, start the service and complete one request.
+- [ ] Tampering with any file in the bundle makes `unpack.sh` fail verification and stop.
+- [ ] The bundle contains nothing from `var/secrets/`.
+- [ ] Isolation check: unpacking and running create nothing new under `$HOME` (the GPU limit command writes no files).
+- [ ] Device test: on the MacBook Air M5, build the full `mac-24gb` bundle, unpack it into another directory (simulating another machine), go offline, start with `--no-tunnel`, create a new key and complete one conversation. Paste the bundle size and the time for each step.
+- [ ] CI passes.

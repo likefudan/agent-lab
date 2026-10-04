@@ -1,29 +1,29 @@
-# T11 使用文档
+# T11 User guide
 
-- 依赖：T08
-- 对应设计：第 6.5、7.4、7.5、9 节
-- 预计规模：小（只写文档）
+- Depends on: T08
+- Design sections: 6.5, 7.4, 7.5, 9
+- Size: small (docs only)
 
-## 目标
+## Goal
 
-让第一次使用的人能按文档完成部署（不计模型下载时间，30 分钟内），并清楚知道这套服务能做什么、不能做什么。
+A first-time user can follow the guide to a working setup within 30 minutes (excluding the model download) and knows clearly what the service can and cannot do.
 
-## 范围
+## Scope
 
-做：
+In scope:
 
-1. `docs/user-guide.md`：
-   - 快速开始：bootstrap → pull → gpu-limit apply → keys create → tunnel set-token → serve → 第一个请求；
-   - 日常使用：启停、查看状态、新增和吊销 key、打开思考、只在本机使用（`--no-tunnel`）；
-   - 客户端：链接到 T08 的 Cursor 和 opencode 文档，并给出任何支持自定义 OpenAI base URL 的工具的通用配置方法（base URL、key、模型名、context 上限、必须使用流式）；
-   - 预期：速度、可用性（Mac 睡眠或合盖时不可用）、Cursor 的已知限制、数据经过哪些第三方；
-   - 卸载：revert GPU 上限、删除项目目录、在 Cloudflare 后台删除 tunnel；
-   - 常见问题：内存不足、端口占用、401、524、速度慢、模型下载中断、tunnel 连不上。
-2. 更新 `README.md` 的快速开始。
+1. `docs/user-guide.md`:
+   - Quick start: bootstrap → pull → gpu-limit apply → keys create → tunnel set-token → serve → first request.
+   - Daily use: start and stop, check status, add and revoke keys, turn thinking on, local-only use (`--no-tunnel`).
+   - Clients: link to T08's Cursor and opencode docs, plus generic settings for any tool that accepts a custom OpenAI base URL (base URL, key, model name, context limit, streaming required).
+   - Expectations: speed, availability (down while the Mac sleeps or the lid is closed), Cursor's known limitations, which third parties see the data.
+   - Uninstall: revert the GPU limit, delete the project directory, delete the tunnel in the Cloudflare dashboard.
+   - Troubleshooting: out of memory, port in use, 401, 524, slow responses, interrupted model download, tunnel not connecting.
+2. Update the quick start in `README.md`.
 
-不做：网页界面；自动启动配置。
+Out of scope: a web UI; auto-start configuration.
 
-## 验收标准
+## Acceptance criteria
 
-- [ ] 按文档从零操作一遍（设备测试），记录实际耗时，文档中的命令全部可以直接复制运行。
-- [ ] 文档中提到的每个命令、配置项都与当前代码一致。
+- [ ] Device test: follow the guide from scratch, record the actual time, and confirm every command can be copied and run as written.
+- [ ] Every command and setting mentioned in the guide matches the current code.

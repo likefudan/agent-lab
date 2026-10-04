@@ -1,43 +1,43 @@
-# T08 Cursor 与 opencode 接入
+# T08 Cursor and opencode integration
 
-- 依赖：T07
-- 对应设计：第 6.3、7.4 节
-- 预计规模：中（以端到端验证为主，代码改动取决于发现的问题）
+- Depends on: T07
+- Design sections: 6.3, 7.4
+- Size: medium (mostly end-to-end verification; code changes depend on what turns up)
 
-## 目标
+## Goal
 
-Cursor 和 opencode 都能通过 `https://api.llmat.dev/v1` 使用 Qwen3.8-27B，包括它们的 agent（工具调用）功能；把可用范围和已知限制写清楚。
+Both Cursor and opencode can use Qwen3.8-27B through `https://api.llmat.dev/v1`, including their agent (tool-calling) features, with what works and what doesn't written down clearly.
 
-## 范围
+## Scope
 
-做：
+In scope:
 
-1. 配置模板：
-   - `examples/opencode/opencode.json`：按设计第 7.4 节，`limit.context` 和 `limit.output` 与档位一致，key 从环境变量读取；
-   - `docs/clients/cursor.md`：Cursor 的配置步骤（需要 Pro 计划）、可用功能、已知限制。
-2. 端到端验证，使用一个专门的小型测试仓库（放在 `tests/e2e/sample-repo/`，例如一个有几个函数和一个失败测试的 Python 项目）。对每个客户端执行同一组任务，记录成功与否、轮数、总耗时、遇到的错误：
-   - 问答：解释某个函数的作用（不需要工具）；
-   - 读文件并回答：找出失败测试的原因；
-   - 修改代码：修复失败的测试并运行测试；
-   - 多文件修改：给一个函数加参数并更新所有调用处。
-3. Cursor 专项：
-   - 验证 Chat 和 Agent 模式都能工作；
-   - 验证 Cursor 在收到 `context_length_exceeded` 错误时的行为：是否自动压缩并重试、是否给出可读的错误；
-   - 根据结果，在 `docs/clients/cursor.md` 中写明推荐用法（例如"一个任务一个新会话"）。
-4. opencode 专项：验证接近 `limit.context` 时会自动压缩对话，且压缩后能继续工作。
-5. 修复验证中发现的网关兼容性问题（如请求字段不支持、流式格式差异、工具调用格式差异）。超出网关范围的问题记录到设计文档第 11 节。
-6. 把结果整理为 `docs/benchmarks/clients-<日期>.md`。
+1. Configuration templates:
+   - `examples/opencode/opencode.json`: as in design section 7.4, with `limit.context` and `limit.output` matching the profile and the key read from an environment variable;
+   - `docs/clients/cursor.md`: Cursor setup steps (Pro plan required), what works, known limitations.
+2. End-to-end checks with a small dedicated test repository (`tests/e2e/sample-repo/`, for example a Python project with a few functions and one failing test). Run the same tasks in each client and record success, number of turns, total time and errors:
+   - Q&A: explain what a function does (no tools);
+   - read and answer: find why the failing test fails;
+   - edit code: fix the failing test and run the tests;
+   - multi-file edit: add a parameter to a function and update every call site.
+3. Cursor-specific:
+   - check that both Chat and Agent modes work;
+   - check what Cursor does on a `context_length_exceeded` error: whether it compacts and retries, and whether it shows a readable error;
+   - based on that, write the recommended usage into `docs/clients/cursor.md` (for example "one new chat per task").
+4. opencode-specific: check that it compacts the conversation when approaching `limit.context`, and keeps working afterwards.
+5. Fix gateway compatibility problems found along the way (unsupported request fields, streaming format differences, tool-call format differences). Problems outside the gateway go into design section 11.
+6. Write the results up as `docs/benchmarks/clients-<date>.md`.
 
-不做：Cursor 的 Tab 补全（不支持自定义模型）；其他客户端（Aider、Continue 等，可在 T11 中给出通用说明）。
+Out of scope: Cursor Tab completion (does not support custom models); other clients such as Aider or Continue (T11 gives generic instructions).
 
-## 验收标准
+## Acceptance criteria
 
-- [ ] opencode：四个任务中至少三个成功完成，其中包括"修改代码并运行测试"。
-- [ ] Cursor：Chat 模式的问答成功；Agent 模式至少完成"读文件并回答"和"修改代码"两个任务。
-- [ ] 两个客户端在验证过程中都没有出现因心跳或鉴权导致的连接失败。
-- [ ] 验证结果文档和两份客户端配置文档已提交。
-- [ ] 如有网关修改，单元测试覆盖并且 CI 全部通过。
+- [ ] opencode: at least three of the four tasks succeed, including "edit code".
+- [ ] Cursor: Q&A works in Chat mode; Agent mode completes at least "read and answer" and "edit code".
+- [ ] Neither client hits connection failures caused by heartbeats or authentication during the checks.
+- [ ] The results document and both client guides are committed.
+- [ ] Any gateway changes have unit tests, and CI passes.
 
-## 备注
+## Notes
 
-- 如果 Cursor 的 Agent 模式因为 1M context 的假设而在实际使用中频繁卡住，在文档中明确推荐长任务使用 opencode，而不是在网关里做截断（截断工具调用历史会让 agent 的行为变得不可预测）。
+- If Cursor's Agent mode keeps stalling in practice because of its 1M-context assumption, recommend opencode for long tasks in the docs rather than truncating in the gateway (truncating tool-call history makes agent behaviour unpredictable).
