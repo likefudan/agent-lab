@@ -131,7 +131,10 @@ def check_disk(home: Path, free_bytes: int | None = None) -> Check:
 
 def check_python() -> Check:
     executable = Path(sys.executable)
-    pinned = toolchain.pinned_python_version()
+    try:
+        pinned = toolchain.pinned_python_version()
+    except OSError as exc:
+        return Check("python", Status.FAIL, f"cannot read .python-version: {exc}")
     running = platform.python_version()
     real = executable.resolve()
     detail = f"{running} at {executable}"

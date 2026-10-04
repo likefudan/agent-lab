@@ -159,9 +159,8 @@ PLATFORM=$(detect_platform)
 cd "$ROOT"
 [ -f .python-version ] || die ".python-version is missing"
 PYTHON_VERSION=$(tr -d '[:space:]' < .python-version)
-case "$PYTHON_VERSION" in
-    *[!0-9.]* | "") die ".python-version must hold a version such as 3.14.8" ;;
-esac
+printf '%s\n' "$PYTHON_VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$' ||
+    die ".python-version must pin an exact version such as 3.14.8"
 
 install_tool uv
 install_tool cloudflared

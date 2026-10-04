@@ -89,6 +89,13 @@ def test_python_version_mismatch_fails(lab_home: Path, monkeypatch: pytest.Monke
     assert "pins 3.0.0" in check.detail
 
 
+def test_python_version_file_missing(lab_home: Path) -> None:
+    (lab_home / ".python-version").unlink()
+    check = doctor.check_python()
+    assert check.status is Status.FAIL
+    assert "cannot read .python-version" in check.detail
+
+
 def test_tools_not_installed(lab_home: Path) -> None:
     checks = doctor.check_tools("darwin-arm64")
     assert [c.name for c in checks] == ["uv", "cloudflared"]
