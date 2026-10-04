@@ -136,6 +136,7 @@ export UV_CACHE_DIR="\$AGENT_LAB_HOME/.tools/cache/uv"
 export UV_PYTHON_INSTALL_DIR="\$AGENT_LAB_HOME/.tools/python"
 export UV_PYTHON_BIN_DIR="\$AGENT_LAB_HOME/.tools/python/bin"
 export UV_MANAGED_PYTHON=1
+export UV_NO_CONFIG=1
 export HF_HOME="\$AGENT_LAB_HOME/var/cache/huggingface"
 export HF_HUB_DISABLE_TELEMETRY=1
 export XDG_CACHE_HOME="\$AGENT_LAB_HOME/var/cache"
@@ -156,15 +157,20 @@ install_tool uv
 install_tool cloudflared
 
 write_env
+# Drop the caller's uv and Python settings so they cannot redirect installs
+# (for example UV_PROJECT_ENVIRONMENT) outside this directory.
+for var in $(env | sed -n 's/^\(UV_[A-Za-z0-9_]*\)=.*/\1/p'); do unset "$var"; done
+unset VIRTUAL_ENV PYTHONHOME PYTHONPATH
 # shellcheck source=/dev/null
 . "$TOOLS/env.sh"
-# Keep a parent virtualenv or user Python settings out of the project install.
-unset VIRTUAL_ENV PYTHONHOME PYTHONPATH
 
 say "installing Python $(cat .python-version) into .tools/python"
 uv python install --no-bin
 
 say "installing dependencies into .venv (uv sync --frozen)"
 uv sync --frozen
+
+say "creating var/"
+"$ROOT/.venv/bin/python" -c 'from agent_lab import paths; paths.ensure_layout()'
 
 say "done. Next: ./alab doctor"

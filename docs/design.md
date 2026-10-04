@@ -460,7 +460,7 @@ This is the biggest technical risk in the design. Qwen models from 3.5 onward em
 | --- | --- |
 | Never use the system or Homebrew Python | uv installs a pinned Python into `.tools/python` (via `UV_PYTHON_INSTALL_DIR`) |
 | Never use global pip | Dependencies go into the project's `.venv`, pinned by `uv.lock` |
-| Never write to user cache directories | `HF_HOME`, `UV_CACHE_DIR`, `XDG_CACHE_HOME` and `PYTHONPYCACHEPREFIX` all point under `var/` or `.tools/`; uv only uses its own managed Python (`UV_MANAGED_PYTHON=1`) and installs no shims into `~/.local/bin` |
+| Never write to user cache directories | `HF_HOME`, `UV_CACHE_DIR`, `XDG_CACHE_HOME` and `PYTHONPYCACHEPREFIX` all point under `var/` or `.tools/`; uv only uses its own managed Python (`UV_MANAGED_PYTHON=1`), installs no shims into `~/.local/bin`, and ignores the user's uv configuration (`UV_NO_CONFIG=1`, inherited `UV_*` variables cleared) |
 | cloudflared never touches `~/.cloudflared` | Run with a token; never run `cloudflared tunnel login`; the binary lives in `.tools/` |
 | Never interfere with an existing Ollama or other services | Only local ports 8000 and 8100 are used, and `doctor` checks them |
 | Never register system services | No LaunchAgent / LaunchDaemon, no `cloudflared service install`. Services are started by `alab serve`, with pids in `var/run/` |

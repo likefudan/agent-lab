@@ -61,7 +61,7 @@ def test_parse_size(text: str, expected: int) -> None:
     assert parse_size(text) == expected
 
 
-@pytest.mark.parametrize("text", ["", "GB", "19.5", "19.5 XB", "-1GB", "1e3GB"])
+@pytest.mark.parametrize("text", ["", "GB", "19.5", "19.5 XB", "-1GB", "1e3GB", "1GB\nx"])
 def test_parse_size_rejects(text: str) -> None:
     with pytest.raises(ValueError, match="invalid size"):
         parse_size(text)
@@ -113,6 +113,7 @@ def test_section_must_be_a_table() -> None:
         ("gateway", "heartbeat_seconds", 100, "must be at most 99"),
         ("gateway", "queue_size", -1, "must be at least 0"),
         ("tunnel", "hostname", "https://api.llmat.dev", "is not a valid hostname"),
+        ("tunnel", "hostname", "api.llmat.dev\n", "is not a valid hostname"),
         ("model", "id", "", "expected a non-empty string"),
         ("backend", "prompt_cache_bytes", "0GB", "must be greater than zero"),
     ],
@@ -148,7 +149,7 @@ def test_missing_profile_lists_available(lab_home: Path) -> None:
         load_profile("nope")
 
 
-@pytest.mark.parametrize("name", ["../tools", "a/b", ""])
+@pytest.mark.parametrize("name", ["../tools", "a/b", "", "mac-24gb\n"])
 def test_profile_name_cannot_escape(lab_home: Path, name: str) -> None:
     with pytest.raises(ConfigError, match="invalid profile name"):
         load_profile(name)

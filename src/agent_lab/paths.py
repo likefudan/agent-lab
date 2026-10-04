@@ -92,10 +92,17 @@ def cache_dir() -> Path:
 
 
 def ensure_layout() -> None:
-    """Create the ``var/`` directories; ``var/secrets`` always ends up mode 700."""
+    """Create any missing ``var/`` directories; a new ``var/secrets`` gets mode 700.
+
+    An existing ``var/secrets`` is left as it is, so that ``alab doctor`` can
+    report a wrong mode instead of it being fixed silently.
+    """
     for directory in (models_dir(), logs_dir(), run_dir(), bench_dir(), cache_dir()):
         directory.mkdir(parents=True, exist_ok=True)
     secrets = secrets_dir()
-    secrets.mkdir(mode=SECRETS_MODE, parents=True, exist_ok=True)
-    # mkdir's mode is filtered by the umask and ignored for existing directories.
+    try:
+        secrets.mkdir(mode=SECRETS_MODE)
+    except FileExistsError:
+        return
+    # mkdir's mode is filtered by the umask.
     secrets.chmod(SECRETS_MODE)

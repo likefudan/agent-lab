@@ -101,7 +101,9 @@ def test_secrets_dir(lab_home: Path) -> None:
     paths.ensure_layout()
     assert doctor.check_secrets_dir().status is Status.OK
     paths.secrets_dir().chmod(0o755)
-    assert "mode 755" in doctor.check_secrets_dir().detail
+    check = doctor.check_secrets_dir()
+    assert check.status is Status.FAIL
+    assert "mode 755" in check.detail
 
 
 def test_profile_check(lab_home: Path) -> None:

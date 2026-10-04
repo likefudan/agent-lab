@@ -27,9 +27,9 @@ _SIZE_UNITS = {
     "GIB": 1024**3,
     "TIB": 1024**4,
 }
-_SIZE_RE = re.compile(r"^\s*(\d+(?:\.\d+)?)\s*([A-Za-z]+)\s*$")
-_HOSTNAME_RE = re.compile(r"^(?=.{1,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$")
-_PROFILE_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
+_SIZE_RE = re.compile(r"\s*(\d+(?:\.\d+)?)\s*([A-Za-z]+)\s*")
+_HOSTNAME_RE = re.compile(r"(?=.{1,253}\Z)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}")
+_PROFILE_NAME_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
 
 
 class ConfigError(Exception):
@@ -38,7 +38,7 @@ class ConfigError(Exception):
 
 def parse_size(text: str) -> int:
     """Parse a size such as ``"19.5GB"`` into bytes. Units are binary: 1GB = 1024**3 bytes."""
-    match = _SIZE_RE.match(text)
+    match = _SIZE_RE.fullmatch(text)
     if not match or match.group(2).upper() not in _SIZE_UNITS:
         raise ValueError(f'invalid size "{text}" (expected a number and a unit, e.g. "19.5GB")')
     return int(float(match.group(1)) * _SIZE_UNITS[match.group(2).upper()])
@@ -175,7 +175,7 @@ class _Section:
 
 
 def _check_hostname(value: str) -> str | None:
-    if _HOSTNAME_RE.match(value):
+    if _HOSTNAME_RE.fullmatch(value):
         return None
     return f'"{value}" is not a valid hostname (expected something like "api.example.com")'
 
@@ -269,7 +269,7 @@ def profile_names() -> list[str]:
 
 def load_profile(name: str = DEFAULT_PROFILE) -> Profile:
     """Load ``config/profiles/<name>.toml``."""
-    if not _PROFILE_NAME_RE.match(name):
+    if not _PROFILE_NAME_RE.fullmatch(name):
         raise ConfigError(f'invalid profile name "{name}"')
     path = paths.profiles_dir() / f"{name}.toml"
     if not path.is_file():

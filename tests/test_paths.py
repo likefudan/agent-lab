@@ -47,12 +47,12 @@ def test_ensure_layout_creates_var_with_private_secrets(lab_home: Path) -> None:
     assert (lab_home / "var/secrets").stat().st_mode & 0o777 == 0o700
 
 
-def test_ensure_layout_tightens_existing_secrets_dir(lab_home: Path) -> None:
+def test_ensure_layout_leaves_existing_secrets_dir_for_doctor(lab_home: Path) -> None:
     secrets = lab_home / "var/secrets"
     secrets.mkdir(parents=True)
     secrets.chmod(0o755)
     paths.ensure_layout()
-    assert secrets.stat().st_mode & 0o777 == 0o700
+    assert secrets.stat().st_mode & 0o777 == 0o755
 
 
 def test_no_other_module_builds_project_paths() -> None:

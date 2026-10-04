@@ -11,7 +11,7 @@ import argparse
 import platform
 import sys
 
-from agent_lab import __version__, doctor, paths
+from agent_lab import __version__, doctor
 
 
 def _cmd_version(args: argparse.Namespace) -> int:
@@ -37,6 +37,5 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
-    paths.ensure_layout()
     result: int = args.func(args)
     return result

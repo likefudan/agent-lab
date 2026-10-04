@@ -1,8 +1,8 @@
 #!/bin/sh
 # T01 acceptance checks on a fresh clone of the current commit (HEAD).
 #
-#   1. bootstrap + doctor with HOME pointing at a new empty directory,
-#      which must still be empty afterwards;
+#   1. bootstrap + doctor with HOME pointing at a new empty directory (and a
+#      UV_PROJECT_ENVIRONMENT inside it), which must still be empty afterwards;
 #   2. every new file is under .tools/, .venv/ or var/;
 #   3. a second bootstrap downloads nothing and is faster;
 #   4. a tampered sha256 in config/tools.toml makes bootstrap fail;
@@ -40,7 +40,8 @@ only_ignored_runtime_dirs() {
     }
 }
 
-in_repo() { (cd "$REPO" && env HOME="$FAKE_HOME" "$@"); }
+# A user-level uv setting that would install outside the project if bootstrap honoured it.
+in_repo() { (cd "$REPO" && env HOME="$FAKE_HOME" UV_PROJECT_ENVIRONMENT="$FAKE_HOME/venv" "$@"); }
 
 if [ -n "$(git -C "$ROOT" status --porcelain)" ]; then
     echo "note: uncommitted changes in $ROOT are not part of this check"

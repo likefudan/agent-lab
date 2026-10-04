@@ -164,10 +164,12 @@ def check_tools(platform_name: str | None) -> list[Check]:
 def check_secrets_dir() -> Check:
     secrets = paths.secrets_dir()
     if not secrets.is_dir():
-        return Check("secrets", Status.FAIL, f"{secrets} is missing")
+        return Check("secrets", Status.FAIL, f"{secrets} is missing; run ./bootstrap.sh")
     mode = secrets.stat().st_mode & 0o777
     if mode != paths.SECRETS_MODE:
-        return Check("secrets", Status.FAIL, f"{secrets} has mode {mode:o}, expected 700")
+        return Check(
+            "secrets", Status.FAIL, f"{secrets} has mode {mode:o}; run chmod 700 {secrets}"
+        )
     return Check("secrets", Status.OK, f"{secrets} (mode 700)")
 
 
