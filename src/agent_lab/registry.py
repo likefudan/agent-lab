@@ -102,11 +102,11 @@ def _parse_files(where: str, value: Any, errors: list[str]) -> tuple[ModelFile, 
             errors.append(f"{label} {key}: unknown field")
         name, size, sha256 = item.get("name"), item.get("size"), item.get("sha256")
         ok = True
-        if not isinstance(name, str) or (problem := _file_name_problem(name)) is not None:
-            shown = name if isinstance(name, str) else repr(name)
-            errors.append(
-                f"{label} name {shown}: {problem if isinstance(name, str) else 'missing'}"
-            )
+        if not isinstance(name, str):
+            errors.append(f"{label} name: missing or not a string")
+            ok = False
+        elif (problem := _file_name_problem(name)) is not None:
+            errors.append(f"{label} name {name!r}: {problem}")
             ok = False
         elif name in seen:
             errors.append(f"{label} name {name}: listed twice")

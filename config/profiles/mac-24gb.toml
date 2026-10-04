@@ -3,7 +3,7 @@
 # Sizes use binary units: 1GB = 1024^3 bytes.
 
 [model]
-id = "qwen3.8-27b-mlx-4bit"       # entry in config/models.toml (added in T02)
+id = "qwen3.8-27b-mlx-4bit"       # entry in config/models.toml
 
 [backend]
 port = 8100

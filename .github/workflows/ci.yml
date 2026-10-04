@@ -44,12 +44,10 @@ jobs:
       - name: T01 acceptance checks
         run: tests/acceptance.sh
 
-  lock-temp:
-    name: Lock registry entries (temporary)
-    runs-on: macos-15
+  models:
+    name: Model download acceptance
+    runs-on: macos-15  # Apple Silicon (arm64)
     steps:
       - uses: actions/checkout@v5
-      - run: ./bootstrap.sh
-      - run: |
-          ./alab models lock qwen3.8-27b-mlx-4bit --repo mlx-community/Qwen3.8-27B-4bit --description "Qwen3.8-27B, MLX 4-bit (includes the ~0.9GB vision tower)"
-          ./alab models lock qwen3-0.6b-mlx-4bit --repo mlx-community/Qwen3-0.6B-4bit --description "Tiny model for CI integration tests"
+      - name: T02 acceptance checks (downloads the CI model)
+        run: tests/models_acceptance.sh
