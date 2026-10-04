@@ -39,28 +39,20 @@ htmlcov/
 *.key
 
 # Local model weights and download caches
-models/
-model-cache/
+/models/
+/model-cache/
 .cache/huggingface/
 *.safetensors
 *.gguf
 *.ggml
 *.onnx
 
-# Agent Lab and Open WebUI runtime data
-.agent-lab/
-open-webui-data/
-uploads/
-vector-db/
-chroma/
-*.db
-*.db-shm
-*.db-wal
-*.sqlite
-*.sqlite3
+# Agent Lab toolchain and runtime data (see docs/design.md section 6.2)
+.tools/
+var/
 
 # Logs and process files
-logs/
+/logs/
 *.log
 *.pid
 

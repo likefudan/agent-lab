@@ -1,0 +1,38 @@
+# Pinned toolchain installed into .tools/bin by bootstrap.sh (design section 8.2).
+#
+# bootstrap.sh reads this file with a small line parser, so keep to
+# `key = "value"` lines under [tool] and [tool.platform] headers.
+#
+# Platforms: darwin-arm64 is the target (Apple Silicon Macs). linux-x86_64 is
+# only for development and CI convenience; the service itself needs a Mac.
+# format: "tar.gz" (binary is the path inside the archive) or "binary".
+
+[uv]
+version = "0.12.23"
+
+[uv.darwin-arm64]
+url = "https://github.com/astral-sh/uv/releases/download/0.12.23/uv-aarch64-apple-darwin.tar.gz"
+sha256 = "50487ae565ccd96e499056b4674d438f4c53170202617b4c759defe0c6a1b544"
+format = "tar.gz"
+binary = "uv-aarch64-apple-darwin/uv"
+
+[uv.linux-x86_64]
+url = "https://github.com/astral-sh/uv/releases/download/0.12.23/uv-x86_64-unknown-linux-gnu.tar.gz"
+sha256 = "9167d72b3319674b6303c4cbe071854bba13ebdf3d76b1a7cbdc175471fb66d6"
+format = "tar.gz"
+binary = "uv-x86_64-unknown-linux-gnu/uv"
+
+[cloudflared]
+version = "2026.9.3"
+
+[cloudflared.darwin-arm64]
+url = "https://github.com/cloudflare/cloudflared/releases/download/2026.9.3/cloudflared-darwin-arm64.tgz"
+sha256 = "587c2cfb1c230fe36c7fa7727da78be459dae028cabe8c001291999350f07095"
+format = "tar.gz"
+binary = "cloudflared"
+
+[cloudflared.linux-x86_64]
+url = "https://github.com/cloudflare/cloudflared/releases/download/2026.9.3/cloudflared-linux-amd64"
+sha256 = "77e26d8d900e0b8469f416239d14b5f296525fdf79fee6f511ef55609e3fbac2"
+format = "binary"
+binary = ""
