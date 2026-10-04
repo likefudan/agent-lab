@@ -137,13 +137,19 @@ export UV_PYTHON_INSTALL_DIR="\$AGENT_LAB_HOME/.tools/python"
 export UV_PYTHON_BIN_DIR="\$AGENT_LAB_HOME/.tools/python/bin"
 export UV_MANAGED_PYTHON=1
 export UV_NO_CONFIG=1
+# UV_NO_CONFIG also stops uv reading .python-version, so pin the version here.
+export UV_PYTHON='$PYTHON_VERSION'
 export HF_HOME="\$AGENT_LAB_HOME/var/cache/huggingface"
 export HF_HUB_DISABLE_TELEMETRY=1
 export XDG_CACHE_HOME="\$AGENT_LAB_HOME/var/cache"
 export PYTHONPYCACHEPREFIX="\$AGENT_LAB_HOME/var/cache/pycache"
 case ":\$PATH:" in
+    *":\$AGENT_LAB_HOME/.venv/bin:"*) ;;
+    *) export PATH="\$AGENT_LAB_HOME/.venv/bin:\$PATH" ;;
+esac
+case ":\$PATH:" in
     *":\$AGENT_LAB_HOME/.tools/bin:"*) ;;
-    *) export PATH="\$AGENT_LAB_HOME/.tools/bin:\$AGENT_LAB_HOME/.venv/bin:\$PATH" ;;
+    *) export PATH="\$AGENT_LAB_HOME/.tools/bin:\$PATH" ;;
 esac
 EOF
     mv -f "$tmp" "$TOOLS/env.sh"
@@ -152,6 +158,10 @@ EOF
 PLATFORM=$(detect_platform)
 cd "$ROOT"
 [ -f .python-version ] || die ".python-version is missing"
+PYTHON_VERSION=$(tr -d '[:space:]' < .python-version)
+case "$PYTHON_VERSION" in
+    *[!0-9.]* | "") die ".python-version must hold a version such as 3.14.8" ;;
+esac
 
 install_tool uv
 install_tool cloudflared
@@ -164,8 +174,8 @@ unset VIRTUAL_ENV PYTHONHOME PYTHONPATH
 # shellcheck source=/dev/null
 . "$TOOLS/env.sh"
 
-say "installing Python $(cat .python-version) into .tools/python"
-uv python install --no-bin
+say "installing Python $PYTHON_VERSION into .tools/python"
+uv python install --no-bin "$PYTHON_VERSION"
 
 say "installing dependencies into .venv (uv sync --frozen)"
 uv sync --frozen
