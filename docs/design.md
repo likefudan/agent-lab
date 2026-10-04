@@ -273,7 +273,7 @@ agent-lab/
 ├── tests/
 ├── docs/
 ├── .tools/                   # not committed: uv, Python, cloudflared
-└── var/                      # not committed: models/, logs/, run/, bench/, secrets/
+└── var/                      # not committed: models/, logs/, run/, bench/, secrets/, cache/
 ```
 
 All runtime paths derive from the `AGENT_LAB_HOME` environment variable, which defaults to the repository root. `var/secrets/` has mode 700 and the files in it have mode 600.
@@ -344,7 +344,7 @@ hostname = "api.llmat.dev"
 gpu_wired_limit_mb = 20480        # value used by `alab gpu-limit apply`
 ```
 
-The tunnel token is never stored in the profile; it lives in `var/secrets/tunnel-token`. Field names are finalized in T01–T07; values follow the T06 results.
+Sizes use binary units (1GB = 1024³ bytes). `alab` rejects unknown fields and checks cross-field rules (distinct ports, `min_output_tokens < max_context`, `metal_memory_limit` below `gpu_wired_limit_mb`, heartbeat under Cloudflare's 100 seconds). The tunnel token is never stored in the profile; it lives in `var/secrets/tunnel-token`. Field names are finalized in T01–T07; values follow the T06 results.
 
 ### 6.5 CLI commands
 
@@ -460,7 +460,7 @@ This is the biggest technical risk in the design. Qwen models from 3.5 onward em
 | --- | --- |
 | Never use the system or Homebrew Python | uv installs a pinned Python into `.tools/python` (via `UV_PYTHON_INSTALL_DIR`) |
 | Never use global pip | Dependencies go into the project's `.venv`, pinned by `uv.lock` |
-| Never write to user cache directories | `HF_HOME`, `UV_CACHE_DIR` and `XDG_CACHE_HOME` all point under `var/` or `.tools/` |
+| Never write to user cache directories | `HF_HOME`, `UV_CACHE_DIR`, `XDG_CACHE_HOME` and `PYTHONPYCACHEPREFIX` all point under `var/` or `.tools/`; uv only uses its own managed Python (`UV_MANAGED_PYTHON=1`), installs no shims into `~/.local/bin`, and ignores the user's uv configuration (`UV_NO_CONFIG=1`, inherited `UV_*` variables cleared) |
 | cloudflared never touches `~/.cloudflared` | Run with a token; never run `cloudflared tunnel login`; the binary lives in `.tools/` |
 | Never interfere with an existing Ollama or other services | Only local ports 8000 and 8100 are used, and `doctor` checks them |
 | Never register system services | No LaunchAgent / LaunchDaemon, no `cloudflared service install`. Services are started by `alab serve`, with pids in `var/run/` |
@@ -470,7 +470,7 @@ This is the biggest technical risk in the design. Qwen models from 3.5 onward em
 
 ### 8.2 Version pinning
 
-- uv and cloudflared: versions and sha256 in `config/tools.toml`.
+- uv and cloudflared: versions and sha256 in `config/tools.toml`, per platform. `darwin-arm64` is the target; a `linux-x86_64` entry exists only so the toolchain and unit tests can run on Linux development machines.
 - Python: version in `.python-version`.
 - Python dependencies: `uv.lock`.
 - Models: `config/models.toml` records the Hugging Face repo, the **commit revision** and every file's sha256; each file is verified after download.

@@ -1,0 +1,45 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  checks:
+    name: Lint, types and unit tests
+    runs-on: macos-15  # Apple Silicon (arm64)
+    steps:
+      - uses: actions/checkout@v5
+      - name: Bootstrap
+        run: ./bootstrap.sh
+      - name: Ruff
+        run: |
+          . .tools/env.sh
+          uv run --frozen ruff check .
+          uv run --frozen ruff format --check .
+      - name: Mypy
+        run: |
+          . .tools/env.sh
+          uv run --frozen mypy
+      - name: Unit tests
+        run: |
+          . .tools/env.sh
+          uv run --frozen pytest
+      - name: Doctor
+        run: ./alab doctor
+
+  acceptance:
+    name: Isolation and bootstrap acceptance
+    runs-on: macos-15  # Apple Silicon (arm64)
+    steps:
+      - uses: actions/checkout@v5
+      - name: T01 acceptance checks
+        run: tests/acceptance.sh

@@ -1,0 +1,28 @@
+#!/bin/sh
+# Run the agent-lab CLI with the project's own environment (.tools/env.sh),
+# so nothing in the user's shell configuration needs to change.
+set -eu
+
+ROOT=$(cd "$(dirname "$0")" && pwd -P)
+ENV_SH="$ROOT/.tools/env.sh"
+
+if [ ! -f "$ENV_SH" ] || [ ! -x "$ROOT/.venv/bin/python" ]; then
+    echo "alab: the toolchain is not installed; run ./bootstrap.sh first" >&2
+    exit 1
+fi
+
+unset AGENT_LAB_HOME
+# Drop the caller's uv and Python settings so they cannot redirect installs
+# (for example UV_PROJECT_ENVIRONMENT) outside this directory.
+for var in $(env | sed -n 's/^\(UV_[A-Za-z0-9_]*\)=.*/\1/p'); do unset "$var"; done
+unset VIRTUAL_ENV PYTHONHOME PYTHONPATH
+# shellcheck source=/dev/null
+. "$ENV_SH"
+
+if [ "$AGENT_LAB_HOME" != "$ROOT" ]; then
+    echo "alab: .tools/env.sh was generated for $AGENT_LAB_HOME;" \
+        "run ./bootstrap.sh again after moving the directory" >&2
+    exit 1
+fi
+
+exec "$ROOT/.venv/bin/python" -m agent_lab "$@"

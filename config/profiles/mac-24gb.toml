@@ -1,0 +1,28 @@
+# Default profile for a 24GB Apple Silicon Mac (design section 6.4).
+# Values are provisional until the T06 benchmarks settle them.
+# Sizes use binary units: 1GB = 1024^3 bytes.
+
+[model]
+id = "qwen3.8-27b-mlx-4bit"       # entry in config/models.toml (added in T02)
+
+[backend]
+port = 8100
+prefill_step_size = 2048
+prompt_cache_size = 1
+prompt_cache_bytes = "2.2GB"      # enough for one full-length conversation
+metal_memory_limit = "19.5GB"     # set by the launch wrapper; overflow raises instead of panicking
+
+[gateway]
+port = 8000
+max_context = 32768               # finalized in T06; 24576 if the cache is copied
+max_output_tokens = 8192
+min_output_tokens = 1024
+queue_size = 4
+heartbeat_seconds = 15
+
+[tunnel]
+enabled = true
+hostname = "api.llmat.dev"
+
+[system]
+gpu_wired_limit_mb = 20480        # value used by `alab gpu-limit apply`

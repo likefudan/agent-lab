@@ -1,0 +1,38 @@
+[project]
+name = "agent-lab"
+version = "0.1.0"
+description = "Self-contained local LLM serving on Apple Silicon: Qwen3.8-27B with mlx-lm behind an OpenAI-compatible gateway."
+readme = "README.md"
+requires-python = "==3.14.*"
+dependencies = []
+
+[project.scripts]
+alab = "agent_lab.cli:main"
+
+[dependency-groups]
+dev = [
+    "mypy>=2.4.0",
+    "pytest>=9.1.1",
+    "ruff>=0.16.10",
+]
+
+[build-system]
+requires = ["uv_build>=0.12.23,<0.13"]
+build-backend = "uv_build"
+
+[tool.ruff]
+line-length = 100
+cache-dir = "var/cache/ruff"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "SIM", "RUF"]
+
+[tool.mypy]
+strict = true
+cache_dir = "var/cache/mypy"
+files = ["src", "tests"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+cache_dir = "var/cache/pytest"
+addopts = "-ra"
