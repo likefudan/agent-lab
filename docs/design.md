@@ -56,7 +56,7 @@ Numbers in this document carry one of three labels: **[measured/official]** come
 | Unified memory | 24GB | User's machine |
 | Memory bandwidth | About 142 GB/s (STREAM), about 26% higher than M4 | [measured/official] MindStudio |
 | Cooling | Fanless; about 6% throttling under sustained load | [measured/official] MindStudio |
-| Default GPU memory limit | Derived by the kernel from physical memory; about 16–18GB on a 24GB machine | [measured/official]; the exact value is whatever `doctor` reads [to verify] |
+| Default GPU memory limit | 18186MB (about 17.8GB, 74% of 24GB): Metal's `recommendedMaxWorkingSetSize` with `iogpu.wired_limit_mb=0` | [measured] T03 device test on the M5, 2026-10-05 |
 | Sleep | The Mac sleeps when the lid is closed or when idle, and the public service is down while it sleeps | Section 7.5 |
 
 Two direct consequences:
@@ -175,7 +175,7 @@ Third-party numbers from an RTX 4090 for reference: Q4_K_M (GGUF, 16GiB) peaked 
 
 ### 4.3 GPU memory limit
 
-By default macOS only lets the GPU wire about 2/3 to 3/4 of unified memory. On a 24GB machine that is about 16–18GB, which cannot hold 15GB of weights plus a KV cache. The approach:
+By default macOS only lets the GPU wire about 3/4 of unified memory. On the 24GB M5 that is 18186MB (about 17.8GB) [measured in T03], which cannot hold 15GB of weights plus a KV cache. Setting `iogpu.wired_limit_mb=20480` raised Metal's `recommendedMaxWorkingSetSize` to exactly 20.0GB, and setting it back to 0 restored 18186MB [measured in T03], so the sysctl is what MLX sees. The approach:
 
 - Raise the limit temporarily with `sudo sysctl iogpu.wired_limit_mb=<value>`. **It resets to the default on reboot**, so nothing permanent is left behind.
 - Recommended value: **20480MB (20GB)** [to verify, confirmed in T06]. A third party ran a 27B MLX model on a 24GB M4 with 21504MB [measured/official]; this design treats that as a hard ceiling and never exceeds it.
