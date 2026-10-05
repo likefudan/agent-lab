@@ -18,6 +18,7 @@ import json
 import sys
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -93,6 +94,10 @@ class Client:
         self.api_key = api_key
         self.model = model
         self.timeout = timeout
+        # A local server must not be reached through http_proxy; a remote one may need it.
+        local = urllib.parse.urlsplit(url).hostname in {"127.0.0.1", "localhost", "::1"}
+        handlers = [urllib.request.ProxyHandler({})] if local else []
+        self.opener = urllib.request.build_opener(*handlers)
 
     def _open(self, body: dict[str, Any]) -> Any:
         headers = {"Content-Type": "application/json"}
@@ -101,7 +106,7 @@ class Client:
         request = urllib.request.Request(
             self.url, data=json.dumps(body).encode(), headers=headers, method="POST"
         )
-        return urllib.request.urlopen(request, timeout=self.timeout)
+        return self.opener.open(request, timeout=self.timeout)
 
     def run(self, name: str, body: dict[str, Any]) -> Result:
         if self.model:

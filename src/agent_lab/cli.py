@@ -123,7 +123,7 @@ def _cmd_serve(args: argparse.Namespace) -> int:
         print(f"alab serve: {exc}", file=sys.stderr)
         return 1
     except KeyboardInterrupt:
-        print("\ninterrupted; the backend was stopped", file=sys.stderr)
+        print("\ninterrupted; nothing was left running", file=sys.stderr)
         return 130
     print("\n".join(lines))
     return 0

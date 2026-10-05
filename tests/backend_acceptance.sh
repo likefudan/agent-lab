@@ -42,7 +42,7 @@ backend_pid() { "$REPO/.venv/bin/python" -c 'import json,sys; print(json.load(op
 launch_count() { pgrep -f "agent_lab.backend.launch" | wc -l | tr -d ' '; }
 port_listening() { /usr/sbin/lsof -nP -iTCP:8100 -sTCP:LISTEN > /dev/null 2>&1; }
 chat() {  # chat <body-file> <output-file>: prints the HTTP status, 000 if the connection failed
-    curl -s -o "$2" -w '%{http_code}' -H 'Content-Type: application/json' \
+    curl -s --noproxy '*' -o "$2" -w '%{http_code}' -H 'Content-Type: application/json' \
         --max-time 300 --data @"$1" http://127.0.0.1:8100/v1/chat/completions || true
 }
 

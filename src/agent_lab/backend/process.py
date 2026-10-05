@@ -114,12 +114,14 @@ def rss_bytes(pid: int) -> int | None:
     return int(value) * 1024 if value.isdigit() else None
 
 
+# Never send local requests through a proxy from http_proxy and friends.
+_LOCAL_OPENER = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+
+
 def health(port: int) -> int | None:
     """HTTP status of the backend's /health, or None if nothing answers."""
     try:
-        with urllib.request.urlopen(
-            f"http://{HOST}:{port}/health", timeout=HEALTH_TIMEOUT
-        ) as response:
+        with _LOCAL_OPENER.open(f"http://{HOST}:{port}/health", timeout=HEALTH_TIMEOUT) as response:
             status: int = response.status
             return status
     except urllib.error.HTTPError as exc:
