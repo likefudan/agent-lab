@@ -16,7 +16,7 @@ set -eu -o pipefail
 
 PROFILE=ci-tiny
 ROOT=$(cd "$(dirname "$0")/.." && pwd -P)
-WORK=$(mktemp -d)
+WORK=$(cd "$(mktemp -d)" && pwd -P)  # resolved, as alab prints it (/var -> /private/var)
 REPO="$WORK/repo"
 FAKE_HOME="$WORK/home"
 mkdir "$FAKE_HOME"
