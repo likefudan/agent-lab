@@ -1,7 +1,8 @@
 """``alab doctor``: check the machine and the project toolchain (design section 6.5).
 
 T01 covers the chip, memory, macOS version, free disk space and toolchain
-integrity. Later tasks add the GPU limit, ports and tunnel checks.
+integrity; T03 adds the GPU limit, available memory, swap and ports. The tunnel
+check comes with T07.
 """
 
 from __future__ import annotations
@@ -9,18 +10,21 @@ from __future__ import annotations
 import os
 import platform
 import shutil
+import socket
 import subprocess
 import sys
 from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
 
-from agent_lab import config, paths, toolchain
+from agent_lab import config, gpulimit, macos, paths, toolchain
 
 GIB = 1024**3
 MIN_MACOS = (14, 0)  # oldest macOS that MLX publishes wheels for
 RECOMMENDED_MEMORY = 24 * GIB
 MIN_FREE_DISK = 20 * GIB  # the Q4 model alone is about 16GB
+SWAP_WARN = 1 * GIB  # more swap than this means memory is already under pressure
+LSOF = "/usr/sbin/lsof"
 
 
 class Status(StrEnum):
@@ -45,16 +49,6 @@ class SystemInfo:
     macos_version: str  # "" when not macOS
 
 
-def _sysctl(name: str) -> str:
-    try:
-        result = subprocess.run(
-            ["/usr/sbin/sysctl", "-n", name], capture_output=True, text=True, check=True
-        )
-    except OSError, subprocess.CalledProcessError:
-        return ""
-    return result.stdout.strip()
-
-
 def _linux_cpu_name() -> str:
     try:
         for line in Path("/proc/cpuinfo").read_text().splitlines():
@@ -69,18 +63,17 @@ def collect_system() -> SystemInfo:
     system = platform.system()
     machine = platform.machine()
     if system == "Darwin":
-        chip = _sysctl("machdep.cpu.brand_string")
-        memsize = _sysctl("hw.memsize")
-        memory = int(memsize) if memsize.isdigit() else None
-        macos = platform.mac_ver()[0]
+        chip = macos.sysctl("machdep.cpu.brand_string")
+        memory = macos.sysctl_int("hw.memsize")
+        macos_version = platform.mac_ver()[0]
     else:
         chip = _linux_cpu_name() if system == "Linux" else ""
         try:
             memory = os.sysconf("SC_PAGE_SIZE") * os.sysconf("SC_PHYS_PAGES")
         except ValueError, OSError, AttributeError:
             memory = None
-        macos = ""
-    return SystemInfo(system, machine, chip or "unknown", memory, macos)
+        macos_version = ""
+    return SystemInfo(system, machine, chip or "unknown", memory, macos_version)
 
 
 def _version_tuple(text: str) -> tuple[int, ...]:
@@ -176,18 +169,138 @@ def check_secrets_dir() -> Check:
     return Check("secrets", Status.OK, f"{secrets} (mode 700)")
 
 
-def check_profile(name: str = config.DEFAULT_PROFILE) -> Check:
+def check_profile(name: str = config.DEFAULT_PROFILE) -> tuple[Check, config.Profile | None]:
     try:
         profile = config.load_profile(name)
     except config.ConfigError as exc:
-        return Check("profile", Status.FAIL, str(exc))
-    return Check("profile", Status.OK, f"{name} (max_context {profile.gateway.max_context})")
+        return Check("profile", Status.FAIL, str(exc)), None
+    detail = f"{name} (max_context {profile.gateway.max_context})"
+    return Check("profile", Status.OK, detail), profile
+
+
+def check_gpu_limit(
+    info: SystemInfo, profile: config.Profile, state: gpulimit.LimitState | None = None
+) -> Check:
+    if info.system != "Darwin":
+        return Check("GPU limit", Status.WARN, f"{gpulimit.SYSCTL_NAME} only exists on macOS")
+    state = state or gpulimit.read_state()
+    needed = profile.system.gpu_wired_limit_mb
+    if state.memory_bytes and needed > gpulimit.ceiling_mb(state.memory_bytes):
+        return Check(
+            "GPU limit",
+            Status.WARN,
+            f"profile {profile.name} needs {needed} MB, above this machine's ceiling of "
+            f"{gpulimit.ceiling_mb(state.memory_bytes)} MB; it cannot run here",
+        )
+    effective = state.effective_mb()
+    if effective is None:
+        reason = state.metal.note if state.wired_limit_mb == 0 else "cannot read the sysctl"
+        return Check("GPU limit", Status.WARN, f"limit in force is unknown: {reason}")
+    source = (
+        f"{gpulimit.SYSCTL_NAME}={state.wired_limit_mb}"
+        if state.wired_limit_mb
+        else f"system default, Metal recommends {effective} MB"
+    )
+    if effective < needed:
+        return Check(
+            "GPU limit",
+            Status.WARN,
+            f"{source}, below the {needed} MB the profile needs; "
+            "run ./alab gpu-limit apply before serving (resets on reboot)",
+        )
+    return Check("GPU limit", Status.OK, f"{source} (profile needs {needed} MB)")
+
+
+def check_memory_pressure(
+    info: SystemInfo, profile: config.Profile, stats: macos.MemoryStats | None = None
+) -> list[Check]:
+    if info.system != "Darwin":
+        return [Check("free memory", Status.WARN, "only checked on macOS")]
+    stats = stats or macos.memory_stats()
+    if stats is None:
+        return [Check("free memory", Status.WARN, "could not read vm_stat")]
+    needed = profile.backend.metal_memory_limit
+    available = f"{stats.available_bytes / GIB:.1f} GB available"
+    if stats.available_bytes < needed:
+        free = Check(
+            "free memory",
+            Status.WARN,
+            f"{available}, less than the model's {needed / GIB:.1f} GB; "
+            "close memory-heavy apps before serving",
+        )
+    else:
+        free = Check("free memory", Status.OK, available)
+    if stats.swap_used_bytes is None:
+        swap = Check("swap", Status.WARN, "could not read vm.swapusage")
+    elif stats.swap_used_bytes > SWAP_WARN:
+        swap = Check(
+            "swap",
+            Status.WARN,
+            f"{stats.swap_used_bytes / GIB:.1f} GB in use; memory is already under pressure",
+        )
+    else:
+        swap = Check("swap", Status.OK, f"{stats.swap_used_bytes / GIB:.1f} GB in use")
+    return [free, swap]
+
+
+def port_in_use(port: int, host: str = "127.0.0.1") -> bool:
+    """True if something accepts connections on the port, or it cannot be bound."""
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
+        probe.settimeout(0.5)
+        if probe.connect_ex((host, port)) == 0:
+            return True
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
+        # Like the servers themselves, ignore connections lingering in TIME_WAIT.
+        probe.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        try:
+            probe.bind((host, port))
+        except OSError:
+            return True
+    return False
+
+
+def port_owner(port: int) -> str:
+    """The listening process as "name (pid N)", or "" if lsof cannot tell."""
+    try:
+        result = subprocess.run(
+            [LSOF, "-nP", f"-iTCP:{port}", "-sTCP:LISTEN", "-Fpc"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except OSError:
+        return ""
+    pid = command = ""
+    for line in result.stdout.splitlines():
+        if line.startswith("p") and not pid:
+            pid = line[1:]
+        elif line.startswith("c") and not command:
+            command = line[1:]
+    return f"{command} (pid {pid})" if pid else ""
+
+
+def check_ports(profile: config.Profile) -> list[Check]:
+    checks = []
+    for role, port in (("gateway", profile.gateway.port), ("backend", profile.backend.port)):
+        name = f"port {port}"
+        if not port_in_use(port):
+            checks.append(Check(name, Status.OK, f"free for the {role}"))
+            continue
+        owner = port_owner(port)
+        by = f" by {owner}" if owner else ""
+        checks.append(
+            Check(
+                name, Status.WARN, f"in use{by}; the {role} cannot start unless that is agent-lab"
+            )
+        )
+    return checks
 
 
 def run_checks(info: SystemInfo | None = None) -> list[Check]:
     info = info or collect_system()
     home = paths.home()
-    return [
+    profile_check, profile = check_profile()
+    checks = [
         check_chip(info),
         check_memory(info),
         check_macos(info),
@@ -195,8 +308,15 @@ def run_checks(info: SystemInfo | None = None) -> list[Check]:
         check_python(),
         *check_tools(toolchain.platform_key(info.system, info.machine)),
         check_secrets_dir(),
-        check_profile(),
+        profile_check,
     ]
+    if profile is not None:
+        checks += [
+            check_gpu_limit(info, profile),
+            *check_memory_pressure(info, profile),
+            *check_ports(profile),
+        ]
+    return checks
 
 
 def main() -> int:

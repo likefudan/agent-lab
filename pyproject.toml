@@ -6,6 +6,9 @@ readme = "README.md"
 requires-python = "==3.14.*"
 dependencies = [
     "huggingface-hub>=2.1.1",
+    # Pinned exactly: MLX reads Metal's recommended working set (T03) and T04's
+    # mlx-lm must stay compatible with this version. macOS only, like mlx-lm.
+    "mlx==0.32.3; platform_system == 'Darwin'",
 ]
 
 [project.scripts]
@@ -43,3 +46,8 @@ addopts = "-ra"
 # huggingface_hub.utils re-exports its helpers lazily without __all__-style markers.
 module = "huggingface_hub.*"
 implicit_reexport = true
+
+[[tool.mypy.overrides]]
+# MLX is only installed on macOS; on Linux (development) the import is untyped.
+module = "mlx.*"
+ignore_missing_imports = true
