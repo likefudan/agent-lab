@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import signal
 import socket
@@ -59,6 +60,9 @@ def test_start_status_stop(backend: object) -> None:
     now = process.status()
     assert now.state is State.RUNNING
     assert now.rss_bytes is not None and now.rss_bytes > 0
+    assert now.memory is None  # the fake backend records no Metal memory
+    paths.backend_memory().write_text(json.dumps({"pid": pid, "active_bytes": 5, "peak_bytes": 6}))
+    assert process.status().memory == {"pid": pid, "active_bytes": 5, "peak_bytes": 6}
 
     record, was_running = process.stop()
     assert record is not None and record.pid == pid and was_running
@@ -67,6 +71,7 @@ def test_start_status_stop(backend: object) -> None:
     assert port_free(port)
     assert not paths.backend_state().exists()
     assert not paths.backend_ready().exists()
+    assert not paths.backend_memory().exists()
 
 
 def test_second_start_finds_the_running_backend(backend: object) -> None:

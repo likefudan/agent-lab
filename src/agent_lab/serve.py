@@ -72,7 +72,12 @@ def describe(status: process.Status) -> list[str]:
     else:
         uptime = int(time.time() - record.started_at)
         lines.append(f"  uptime: {uptime // 3600}h{uptime // 60 % 60:02d}m{uptime % 60:02d}s")
-        lines.append(f"  RSS: {_gb(status.rss_bytes)}")
+        memory = status.memory or {}
+        lines.append(
+            f"  memory: Metal {_gb(memory.get('active_bytes'))} in use, "
+            f"peak {_gb(memory.get('peak_bytes'))}; process RSS {_gb(status.rss_bytes)} "
+            "(RSS leaves out most Metal buffers)"
+        )
     if status.ready:
         ready = status.ready
         lines.append(

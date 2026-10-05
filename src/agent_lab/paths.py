@@ -103,6 +103,11 @@ def backend_ready() -> Path:
     return run_dir() / "backend.ready.json"
 
 
+def backend_memory() -> Path:
+    """The backend's Metal memory use, refreshed every few seconds while it runs."""
+    return run_dir() / "backend.memory.json"
+
+
 def backend_lock() -> Path:
     return run_dir() / "backend.lock"
 

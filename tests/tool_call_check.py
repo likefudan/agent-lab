@@ -424,7 +424,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--api-key", help="Bearer key (for the gateway)")
     parser.add_argument("--model", help="model name to send (default: none, the server default)")
     parser.add_argument("--timeout", type=float, default=900, help="seconds per request")
-    parser.add_argument("--output", help="also write the report to this file")
+    parser.add_argument("--output", help="write the report to this file instead of stdout")
     args = parser.parse_args(argv)
 
     client = Client(args.url, args.api_key, args.model, args.timeout)
@@ -441,11 +441,15 @@ def main(argv: list[str] | None = None) -> int:
         )
         results.append(result)
     text = report(results, args.url)
-    print(text)
     if args.output:
         with open(args.output, "w", encoding="utf-8") as f:
             f.write(text)
-    return 0 if all(r.passed for r in results) else 1
+    else:
+        print(text)
+    passed = sum(r.passed for r in results)
+    where = f"; report in {args.output}" if args.output else ""
+    print(f"{passed} of {len(results)} cases passed{where}", file=sys.stderr)
+    return 0 if passed == len(results) else 1
 
 
 if __name__ == "__main__":

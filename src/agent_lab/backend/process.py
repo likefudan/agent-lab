@@ -84,6 +84,7 @@ class Status:
     record: Record | None
     ready: dict[str, Any] | None  # backend.ready.json, once the model is loaded
     rss_bytes: int | None
+    memory: dict[str, Any] | None = None  # backend.memory.json: Metal active and peak bytes
 
 
 def process_command(pid: int) -> str | None:
@@ -131,8 +132,12 @@ def health(port: int) -> int | None:
 
 
 def _read_ready(pid: int) -> dict[str, Any] | None:
+    return _read_record(paths.backend_ready(), pid)
+
+
+def _read_record(path: Path, pid: int) -> dict[str, Any] | None:
     try:
-        data = json.loads(paths.backend_ready().read_text())
+        data = json.loads(path.read_text())
     except OSError, ValueError:
         return None
     # A record left by an earlier run does not describe this process.
@@ -152,7 +157,8 @@ def status() -> Status:
         state = State.LOADING
     else:
         state = State.RUNNING if health(record.port) == 200 else State.UNHEALTHY
-    return Status(state, record, ready, rss_bytes(record.pid))
+    memory = _read_record(paths.backend_memory(), record.pid)
+    return Status(state, record, ready, rss_bytes(record.pid), memory)
 
 
 def log_tail(path: Path, lines: int = LOG_TAIL_LINES) -> list[str]:
@@ -167,7 +173,7 @@ def log_tail(path: Path, lines: int = LOG_TAIL_LINES) -> list[str]:
 
 
 def _clear_files() -> None:
-    for path in (paths.backend_state(), paths.backend_ready()):
+    for path in (paths.backend_state(), paths.backend_ready(), paths.backend_memory()):
         path.unlink(missing_ok=True)
 
 

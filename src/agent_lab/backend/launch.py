@@ -60,6 +60,7 @@ EXIT_CONFIG = 2
 EXIT_LOAD_FAILED = 3
 EXIT_GENERATION_DIED = 4
 EXIT_MEMORY_LIMIT = 5
+MEMORY_SAMPLE_INTERVAL = 2.0  # seconds between memory records for `alab status`
 GENERATION_DIED_GRACE = 2.0  # seconds for mlx-lm to send the in-flight request its error
 
 # Environment of the server: models only ever come from `alab pull` (design section 9).
@@ -146,14 +147,30 @@ def start_watchdog(
     limit: int,
     on_exceeded: Callable[[str], None],
     interval: float = WATCHDOG_INTERVAL,
+    on_sample: Callable[[int], None] | None = None,
+    sample_every: float = MEMORY_SAMPLE_INTERVAL,
+    stop: threading.Event | None = None,
 ) -> threading.Thread:
+    """Check memory every ``interval``; pass a reading to ``on_sample`` every ``sample_every``."""
+
+    stopped = stop or threading.Event()
+
     def watch() -> None:
-        while True:
-            reason = check_memory(read_active(), limit)
+        last_sample = 0.0
+        while not stopped.is_set():
+            active = read_active()
+            reason = check_memory(active, limit)
             if reason:
                 on_exceeded(reason)
                 return
-            time.sleep(interval)
+            now = time.monotonic()
+            if on_sample is not None and now - last_sample >= sample_every:
+                last_sample = now
+                try:
+                    on_sample(active)
+                except OSError:
+                    log.exception("cannot record memory use")
+            stopped.wait(interval)
 
     thread = threading.Thread(target=watch, name="memory-watchdog", daemon=True)
     thread.start()
@@ -165,7 +182,7 @@ def _memory_exceeded(reason: str) -> None:
     _exit(EXIT_MEMORY_LIMIT)
 
 
-def write_ready(path: Path, info: dict[str, Any]) -> None:
+def write_json(path: Path, info: dict[str, Any]) -> None:
     tmp = path.with_suffix(".tmp")
     tmp.write_text(json.dumps(info, indent=2) + "\n")
     tmp.replace(path)
@@ -212,7 +229,7 @@ def install_hooks(
             _size(info["metal_active_bytes"]),
             parser_name or "none (tool calls will not be parsed)",
         )
-        write_ready(ready_path, info)
+        write_json(ready_path, info)
 
     def run_generate(self: Any) -> None:
         original_run_generate(self)
@@ -248,7 +265,16 @@ def run(settings: LaunchSettings, ready_path: Path) -> None:
     mx.set_memory_limit(settings.memory_limit)
     log.info("Metal memory limit %s (watchdog enforced)", _size(settings.memory_limit))
     install_hooks(server, mx, settings, ready_path)
-    start_watchdog(mx.get_active_memory, settings.memory_limit, _memory_exceeded)
+    memory_path = paths.backend_memory()
+
+    def record_memory(active: int) -> None:
+        # RSS does not count Metal buffers on macOS, so `alab status` shows these numbers too.
+        info = {"pid": os.getpid(), "active_bytes": active, "peak_bytes": mx.get_peak_memory()}
+        write_json(memory_path, info)
+
+    start_watchdog(
+        mx.get_active_memory, settings.memory_limit, _memory_exceeded, on_sample=record_memory
+    )
     signal.signal(signal.SIGTERM, _on_sigterm)
     sys.argv = ["mlx_lm.server", *settings.server_args]
     server.main()

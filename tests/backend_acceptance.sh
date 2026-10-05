@@ -102,7 +102,7 @@ grep -F "data: [DONE]" "$WORK/stream.out" > /dev/null || fail "stream did not en
 step "status"
 alab status | tee "$WORK/status.txt" || fail "status exited with $? while running"
 grep "backend: running (pid $pid, port 8100" "$WORK/status.txt" > /dev/null || fail "status does not show the pid and port"
-grep "RSS: " "$WORK/status.txt" > /dev/null || fail "status does not show RSS"
+grep -E "memory: Metal [0-9.]+ GB in use, peak [0-9.]+ GB; process RSS [0-9.]+ GB" "$WORK/status.txt" > /dev/null || fail "status does not show memory"
 grep "log: $REPO/var/logs/backend.log" "$WORK/status.txt" > /dev/null || fail "status does not show the log"
 if grep -F '"messages"' "$REPO"/var/logs/backend*.log > /dev/null; then fail "a request body was logged"; fi
 

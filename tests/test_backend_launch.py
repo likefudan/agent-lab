@@ -154,3 +154,29 @@ def test_log_stream_logs_complete_lines(caplog: pytest.LogCaptureFixture) -> Non
 def test_main_rejects_a_bad_profile(lab_home: Path, capsys: pytest.CaptureFixture[str]) -> None:
     assert launch.main(["--profile", "missing"]) == launch.EXIT_CONFIG
     assert 'profile "missing" not found' in capsys.readouterr().err
+
+
+def test_watchdog_samples_memory_for_status() -> None:
+    samples: list[int] = []
+    done = threading.Event()
+
+    def sample(active: int) -> None:
+        samples.append(active)
+        if len(samples) >= 2:
+            done.set()
+
+    stop = threading.Event()
+    thread = launch.start_watchdog(
+        lambda: 500,
+        1000,
+        lambda reason: None,
+        interval=0.001,
+        on_sample=sample,
+        sample_every=0.01,
+        stop=stop,
+    )
+    assert done.wait(5)
+    stop.set()
+    thread.join(5)
+    assert not thread.is_alive()
+    assert samples[:2] == [500, 500]
