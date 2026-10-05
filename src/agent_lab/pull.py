@@ -9,8 +9,9 @@ Layout of a model directory::
 
 Downloads use the Hugging Face client's HTTP session and headers (so
 ``HF_TOKEN`` and the proxy settings it honours apply), but not
-``hf_hub_download``: since huggingface_hub 2.x it deletes partial files on
-failure, and this command must resume a 16GB download after Ctrl-C. Each file
+``hf_hub_download``: huggingface_hub 2.x deletes partial files on failure
+(T02 found this; T04 moved to 1.x for transformers, but the reason stands for
+any upgrade), and this command must resume a 16GB download after Ctrl-C. Each file
 is fetched from the pinned commit with an HTTP Range request starting where
 the partial file ends, then hashed before it is moved into place.
 """
@@ -204,13 +205,13 @@ Fetcher = Callable[[str, int], contextlib.AbstractContextManager[tuple[int, Iter
 
 @contextlib.contextmanager
 def _hf_fetch(url: str, offset: int) -> Iterator[tuple[int, Iterator[bytes]]]:
-    import httpx2
+    import httpx
     from huggingface_hub.utils import build_hf_headers, get_session, hf_raise_for_status
 
     headers = build_hf_headers()
     if offset:
         headers["Range"] = f"bytes={offset}-"
-    timeout = httpx2.Timeout(READ_TIMEOUT, connect=CONNECT_TIMEOUT)
+    timeout = httpx.Timeout(READ_TIMEOUT, connect=CONNECT_TIMEOUT)
     with get_session().stream("GET", url, headers=headers, timeout=timeout) as response:
         status = response.status_code
         if status == 429 or status >= 500:
@@ -223,9 +224,9 @@ def _hf_fetch(url: str, offset: int) -> Iterator[tuple[int, Iterator[bytes]]]:
 
 
 def _transient_errors() -> tuple[type[BaseException], ...]:
-    import httpx2
+    import httpx
 
-    return (httpx2.TransportError, _RetryableHTTPError, OSError)
+    return (httpx.TransportError, _RetryableHTTPError, OSError)
 
 
 def file_url(entry: ModelEntry, f: ModelFile, endpoint: str | None = None) -> str:

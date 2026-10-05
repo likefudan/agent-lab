@@ -30,6 +30,7 @@ _SIZE_UNITS = {
 _SIZE_RE = re.compile(r"\s*(\d+(?:\.\d+)?)\s*([A-Za-z]+)\s*")
 _HOSTNAME_RE = re.compile(r"(?=.{1,253}\Z)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}")
 _PROFILE_NAME_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
+_TOOL_PARSER_RE = re.compile(r"[a-z][a-z0-9_]*")
 
 
 class ConfigError(Exception):
@@ -56,6 +57,12 @@ class BackendConfig:
     prompt_cache_size: int
     prompt_cache_bytes: int
     metal_memory_limit: int
+    tool_parser: str  # an mlx_lm.tool_parsers module, or "auto" for mlx-lm's own detection
+    enable_thinking: bool
+    temperature: float
+    top_p: float
+    top_k: int
+    start_timeout_seconds: int
 
 
 @dataclass(frozen=True)
@@ -133,6 +140,17 @@ class _Section:
             self._fail(key, f"must be at most {maximum}, got {value}")
         return value
 
+    def number(self, key: str, minimum: float, maximum: float) -> float:
+        value = self._get(key)
+        if value is None:
+            return 0.0
+        if isinstance(value, bool) or not isinstance(value, int | float):
+            self._fail(key, f"expected a number, got {value!r}")
+            return 0.0
+        if not minimum <= value <= maximum:
+            self._fail(key, f"must be between {minimum} and {maximum}, got {value}")
+        return float(value)
+
     def string(self, key: str, check: Callable[[str], str | None] | None = None) -> str:
         value = self._get(key)
         if value is None:
@@ -180,6 +198,12 @@ def _check_hostname(value: str) -> str | None:
     return f'"{value}" is not a valid hostname (expected something like "api.example.com")'
 
 
+def _check_tool_parser(value: str) -> str | None:
+    if _TOOL_PARSER_RE.fullmatch(value):
+        return None
+    return f'"{value}" is not a tool parser name (expected e.g. "qwen3_coder" or "auto")'
+
+
 def parse_profile(name: str, path: Path, data: dict[str, Any]) -> Profile:
     """Validate parsed TOML; raises ConfigError naming the file and every bad field."""
     errors: list[str] = []
@@ -198,6 +222,12 @@ def parse_profile(name: str, path: Path, data: dict[str, Any]) -> Profile:
         prompt_cache_size=s.integer("prompt_cache_size", 0),
         prompt_cache_bytes=s.size("prompt_cache_bytes"),
         metal_memory_limit=s.size("metal_memory_limit"),
+        tool_parser=s.string("tool_parser", _check_tool_parser),
+        enable_thinking=s.boolean("enable_thinking"),
+        temperature=s.number("temperature", 0.0, 2.0),
+        top_p=s.number("top_p", 0.0, 1.0),
+        top_k=s.integer("top_k", 0),
+        start_timeout_seconds=s.integer("start_timeout_seconds", 1),
     )
     s.finish()
 

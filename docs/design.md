@@ -14,7 +14,7 @@
 | Model | `Qwen/Qwen3.8-27B` (27B dense, hybrid attention, Apache 2.0, released 2026-08) |
 | Quantization | **4-bit (Q4)**. 3-bit is only a fallback if memory turns out to be too tight |
 | Runtime | **mlx-lm only**. Ollama, LM Studio and llama.cpp are out of scope |
-| Maturity | mlx-lm supports this model's architecture, but **tool-call parsing for non-Coder Qwen models after 3.5 is not yet reliable** in mlx-lm. This is the top risk for Cursor and opencode (section 7.4) |
+| Maturity | mlx-lm 0.32.0 runs this model text-only. Its tool-parser auto-detection is unreliable for non-Coder Qwen models after 3.5, so the backend forces the `qwen3_coder` parser; with that, all 9 tool-call checks passed on the target machine, streaming and non-streaming (section 7.4, T04) |
 | Context | **32K by default**, provided the prompt cache does not keep a second copy of the KV cache (section 4.2, measured in T06); otherwise 24K. 64K is not offered |
 | Thinking mode | **Off by default**, can be enabled per request. At about 6–9 tok/s on this machine, the model's default `xhigh` thinking is unusable |
 | Public access | **`https://api.llmat.dev/v1`**, exposed through Cloudflare Tunnel (the domain's DNS is already on Cloudflare). No inbound ports are opened on the Mac |
@@ -105,7 +105,7 @@ MLX format [measured/official]: `mlx-community/Qwen3.8-27B-4bit` is 16.1GB in to
 
 | Runtime | Support | Decision |
 | --- | --- | --- |
-| **mlx-lm** | Text-only Qwen3.5 support since v0.30.7. Qwen3.8-27B has the same layer layout as Qwen3.5/3.6-27B, and the mlx-community 4-bit build has about 177K downloads per month [measured/official]. Whether Qwen3.8 uses the same `model_type`, and the minimum mlx-lm version [to verify, T04] | **Use** |
+| **mlx-lm** | Text-only Qwen3.5 support since v0.30.7. Qwen3.8-27B has the same layer layout as Qwen3.5/3.6-27B, and the mlx-community 4-bit build has about 177K downloads per month [measured/official]. The build's `config.json` declares `model_type = "qwen3_5"` (text config `qwen3_5_text`), which mlx-lm's `qwen3_5` module loads; its `sanitize()` drops the vision tower. **Pinned to mlx-lm 0.32.0** [measured in T04] | **Use** |
 | Ollama | Supported since v0.32.12; `qwen3.8:27b-mlx` is 18GB including vision [measured/official] | Not used (decided 2026-10-04) |
 | LM Studio | MLX and GGUF builds available | Not used: a GUI app, hard to keep self-contained and packable |
 | llama.cpp | GGUF builds available | Not used |
@@ -116,10 +116,10 @@ Why mlx-lm: text-only loading takes about 15GB, about 3GB less than Ollama's 18G
 
 | Gap | Mitigation |
 | --- | --- |
-| `mlx_lm.server` has no hard context limit; the KV cache grows with the request. Released versions have no `--kv-bits` [measured/official] | The gateway enforces a token limit (section 6.3); backend concurrency is 1 |
+| `mlx_lm.server` has no hard context limit; the KV cache grows with the request. mlx-lm 0.32.0 added `--kv-bits` (KV cache quantization, which turns off batching); not used yet, evaluated in T06 [measured in T04] | The gateway enforces a token limit (section 6.3); backend concurrency is 1 |
 | Default concurrency is 32, which multiplies KV memory | `--decode-concurrency 1` and `--prompt-concurrency 1`; the gateway handles queuing |
-| Running out of memory can cause a kernel panic instead of an error: a user running a hybrid-attention model on an M4 Max hit an `IOGPUMemory.cpp` panic when the KV cache grew without bound [measured/official] | A thin launch wrapper calls `mx.set_memory_limit()` (or the current equivalent) before starting the server, so going over the limit becomes a catchable Python exception. Together with the gateway limit, that gives two layers of protection |
-| For non-Coder Qwen3.5/3.6 models, the server's tool-parser auto-detection fails: requests with tools come back with empty content [measured/official, mlx-lm issue #1293] | See section 7.4: first try forcing the `qwen3_coder` parser; if that is not reliable, the gateway parses tool calls itself |
+| Running out of memory can cause a kernel panic instead of an error: a user running a hybrid-attention model on an M4 Max hit an `IOGPUMemory.cpp` panic when the KV cache grew without bound [measured/official] | `mx.set_memory_limit()` turned out to be only a soft limit in MLX 0.32: above it, evaluation waits for queued work and then allocates anyway, and nothing raises until Metal refuses an allocation [measured in T04, from the MLX source]. So the launch wrapper sets it (it also keeps MLX's buffer cache below it) and runs a watchdog that reads MLX's active memory every 10 ms; above `metal_memory_limit` it logs the reason and exits the process, which returns all its GPU memory at once. It reacts after the fact, so one evaluation step (at most one prefill chunk) can overshoot the limit before it fires; the gateway's token limit is the primary guard and the watchdog the second layer |
+| For non-Coder Qwen3.5/3.6 models, the server's tool-parser auto-detection fails: requests with tools come back with empty content [measured/official, mlx-lm issue #1293] | The launch wrapper forces the `qwen3_coder` parser (section 7.4); verified reliable in T04 |
 
 ### 3.4 Other models in the same class
 
@@ -326,7 +326,13 @@ port = 8100
 prefill_step_size = 2048
 prompt_cache_size = 1
 prompt_cache_bytes = "2.2GB"      # enough for one full-length conversation
-metal_memory_limit = "19.5GB"     # set by the launch wrapper; overflow raises instead of panicking
+metal_memory_limit = "19.5GB"     # the launch wrapper stops the backend if MLX uses more (T04)
+tool_parser = "qwen3_coder"       # forced: mlx-lm's auto-detection is unreliable for Qwen3.5+
+enable_thinking = false           # chat template argument; thinking is off by default
+temperature = 0.7                 # sampling defaults: the model card's non-thinking values
+top_p = 0.8
+top_k = 20
+start_timeout_seconds = 600       # loading 15GB of weights from disk
 
 [gateway]
 port = 8000
@@ -444,6 +450,8 @@ This is the biggest technical risk in the design. Qwen models from 3.5 onward em
 
 1. T04 checks first: force the `qwen3_coder` tool parser in the launch wrapper (through a CLI argument, or by setting `tool_parser_type` in the local model's `tokenizer_config.json`), and check that `tool_calls` come back correctly for both streaming and non-streaming requests.
 2. If mlx-lm's parsing is unreliable in either case, T05 implements parsing in the gateway: the backend only generates text, and the gateway converts tool-call blocks in the model output into OpenAI `tool_calls` (incremental deltas when streaming), verified against a fixed set of test samples.
+
+   **T04 result: mlx-lm's parsing is reliable, so the gateway passes tool calls through.** The launch wrapper passes `tool_parser_type = "qwen3_coder"` to the tokenizer (the model files stay untouched). On the MacBook Air M5 with the 27B model, all 9 checks in `tests/tool_call_check.py` passed: one call, two parallel calls, arguments with quotes, backslashes and newlines, and an answer from a tool result, each streaming and non-streaming, with no thinking content [measured in T04, report in `docs/results/t04-tool-call-check.md`]. When streaming, mlx-lm sends each tool call as one complete `delta.tool_calls` entry once the call is finished, not argument by argument.
 3. T08 runs a set of real agent tasks in both Cursor and opencode as acceptance.
 
 ### 7.5 Availability
@@ -531,12 +539,12 @@ Pass criteria for the device tests (T06): with the final profile, run a multi-tu
 
 | Risk / open question | Impact | Handling |
 | --- | --- | --- |
-| mlx-lm parses Qwen3.8 tool calls unreliably | Cursor and opencode agents do not work | T04 tests a forced parser; if that fails, T05 parses in the gateway (section 7.4) |
-| Minimum mlx-lm version for Qwen3.8 | T04 cannot start the model | First step of T04; if unsupported, evaluate mlx-vlm's text path |
+| mlx-lm parses Qwen3.8 tool calls unreliably | Cursor and opencode agents do not work | Resolved in T04: the forced `qwen3_coder` parser passed every check; T08 still runs real agent tasks (section 7.4) |
+| Minimum mlx-lm version for Qwen3.8 | T04 cannot start the model | Resolved in T04: `model_type` is `qwen3_5`, supported since v0.30.7; pinned to 0.32.0 |
 | Reusing the prompt cache copies the KV cache | 32K does not fit | First measurement in T06; drop to 24K |
 | Cursor assumes custom models have a 1M context | Long sessions stall in Cursor | T08 checks how Cursor handles `context_length_exceeded`; if it does not compact, the user guide recommends one new chat per task and opencode for long tasks |
 | Agent use is slow overall | A single task can take ten minutes or more | Expectations set in section 5; evaluate MTP (T06) and the fast profile (T10) |
-| Running out of memory causes a kernel panic | Reboot and possible data loss | Metal memory limit plus the gateway's token limit |
+| Running out of memory causes a kernel panic | Reboot and possible data loss | Watchdog on MLX's memory (stops the backend above `metal_memory_limit`) plus the gateway's token limit |
 | Cloudflare's 100-second timeout | Connections drop during long prefills | Streaming heartbeats; long non-streaming requests documented |
 | The Mac sleeps or goes offline | Public service unavailable | `caffeinate`; availability documented |
 | Fanless throttling | Slower long tasks | T06 records a 10-minute sustained-load speed curve |

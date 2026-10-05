@@ -11,7 +11,8 @@ import argparse
 import platform
 import sys
 
-from agent_lab import __version__, config, doctor, gpulimit, paths, pull, registry
+from agent_lab import __version__, config, doctor, gpulimit, paths, pull, registry, serve
+from agent_lab.backend import process
 
 
 def _cmd_version(args: argparse.Namespace) -> int:
@@ -114,6 +115,51 @@ def _cmd_gpu_limit(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_serve(args: argparse.Namespace) -> int:
+    try:
+        profile = config.load_profile(args.profile)
+        lines = serve.serve(profile, force=args.force)
+    except (config.ConfigError, serve.ServeError, process.BackendError) as exc:
+        print(f"alab serve: {exc}", file=sys.stderr)
+        return 1
+    except KeyboardInterrupt:
+        print("\ninterrupted; run ./alab status to see what is left running", file=sys.stderr)
+        return 130
+    print("\n".join(lines))
+    return 0
+
+
+def _cmd_stop(args: argparse.Namespace) -> int:
+    try:
+        record, was_running = process.stop()
+    except process.BackendError as exc:
+        print(f"alab stop: {exc}", file=sys.stderr)
+        return 1
+    if record is None:
+        print("backend: not running")
+    elif was_running:
+        print(f"backend: stopped (pid {record.pid})")
+    else:
+        print(f"backend: had already exited (pid {record.pid}); cleared its record")
+    return 0
+
+
+# Exit codes of `alab status`, as for LSB init scripts.
+_STATUS_CODES = {
+    process.State.RUNNING: 0,
+    process.State.LOADING: 0,
+    process.State.UNHEALTHY: 1,
+    process.State.EXITED: 1,
+    process.State.STOPPED: 3,
+}
+
+
+def _cmd_status(args: argparse.Namespace) -> int:
+    status = process.status()
+    print("\n".join(serve.describe(status)))
+    return _STATUS_CODES[status.state]
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="alab", description="Run Qwen3.8-27B locally with mlx-lm behind an API gateway."
@@ -171,6 +217,17 @@ def build_parser() -> argparse.ArgumentParser:
     gpu_revert = gpu_sub.add_parser("revert", help="restore the system default with sudo")
     for command in (gpu_apply, gpu_revert):
         command.add_argument("--yes", action="store_true", help="skip the confirmation prompt")
+
+    p = sub.add_parser("serve", help="start the inference backend (mlx-lm on 127.0.0.1)")
+    p.add_argument("--profile", default=config.DEFAULT_PROFILE, help="profile to serve")
+    p.add_argument(
+        "--force", action="store_true", help="start even if the GPU limit is below the profile's"
+    )
+    p.set_defaults(func=_cmd_serve)
+    sub.add_parser("stop", help="stop the backend").set_defaults(func=_cmd_stop)
+    sub.add_parser(
+        "status", help="show whether the backend runs, its memory and logs"
+    ).set_defaults(func=_cmd_status)
     return parser
 
 

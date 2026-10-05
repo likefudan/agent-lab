@@ -26,12 +26,12 @@ In scope:
    - If the prompt exceeds `max_context - min_output_tokens`, return 400 with `error.code = "context_length_exceeded"` in OpenAI's error format.
    - Otherwise clamp `max_tokens` to `min(requested, max_output_tokens, max_context - prompt_tokens)` before forwarding. Accept `max_completion_tokens` too.
 4. Parameters:
-   - The external model name is `qwen3.8-27b`, replaced with the backend's internal name when forwarding; any other model name gets an OpenAI-style "model not found" error.
+   - The external model name is `qwen3.8-27b`, replaced with the backend's internal name when forwarding; any other model name gets an OpenAI-style "model not found" error. The backend's internal name is `default_model` (or leave `model` out): mlx-lm treats any other name as a Hugging Face repository to load [found in T04]. Also drop `adapters`, `draft_model` and `num_draft_tokens` from forwarded requests: mlx-lm would unload the model and load whatever they name [found in T04].
    - `reasoning_effort`: `none` (default) / `low` / `medium` / `high`, converted into mlx-lm `chat_template_kwargs`; confirm the exact argument names against the model's chat template.
    - Fill in the thinking or non-thinking recommended sampling values when the client sets none.
    - Image content returns 400, explaining that v1 does not support it.
 5. Tool calls:
-   - If T04 found mlx-lm's parsing reliable: pass through as-is and add tests.
+   - If T04 found mlx-lm's parsing reliable: pass through as-is and add tests. **T04 found it reliable** (9 of 9 checks on the 27B, see `docs/results/t04-tool-call-check.md`), so this is the path; `tests/tool_call_check.py --url http://127.0.0.1:8000 --api-key ...` reruns the same check through the gateway.
    - If not: call the backend for plain text generation and convert tool-call blocks in the model output into OpenAI format in the gateway (complete `tool_calls` for non-streaming, `delta.tool_calls` increments for streaming, `finish_reason` = `tool_calls`). Unit-test against a fixed set of model outputs covering multiple tool calls, arguments with newlines and quotes, nested JSON arguments, and truncated output.
 6. Concurrency and heartbeats:
    - Forward one request at a time; queue up to `queue_size` and return 429 beyond that.
