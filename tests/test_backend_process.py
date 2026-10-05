@@ -161,3 +161,44 @@ def test_log_tail(tmp_path: Path) -> None:
     log.write_text("".join(f"line {i}\n" for i in range(100)))
     assert process.log_tail(log, 3) == ["line 97", "line 98", "line 99"]
     assert process.log_tail(tmp_path / "missing.log") == []
+
+
+def test_record_from_another_version_still_names_its_process(lab_home: Path) -> None:
+    paths.ensure_layout()
+    paths.backend_state().write_text(json.dumps({"pid": 4242, "port": 8100, "future_field": 1}))
+    record = process.Record.load(paths.backend_state())
+    assert record is not None and record.pid == 4242 and record.profile == "unknown"
+
+
+def test_reaped_child_is_not_signalled(monkeypatch: pytest.MonkeyPatch) -> None:
+    proc = subprocess.Popen([sys.executable, "-c", "pass"])
+    proc.wait()
+    sent: list[int] = []
+    monkeypatch.setattr(os, "kill", lambda pid, sig: sent.append(pid))
+    assert process._terminate(proc.pid, proc) is False
+    assert sent == []
+
+
+def test_stop_works_while_a_backend_is_loading(backend: object) -> None:
+    import threading
+
+    port = free_port()
+    errors: list[BaseException] = []
+
+    def serve() -> None:
+        try:
+            process.start(settings(port), 30, command(port, "hang"))
+        except BaseException as exc:
+            errors.append(exc)
+
+    thread = threading.Thread(target=serve)
+    thread.start()
+    deadline = time.monotonic() + 10
+    while process.status().state is not State.LOADING and time.monotonic() < deadline:
+        time.sleep(0.05)
+    assert process.status().state is State.LOADING
+    started = time.monotonic()
+    _, was_running = process.stop(timeout=2)
+    assert was_running and time.monotonic() - started < 10
+    thread.join(15)
+    assert errors and isinstance(errors[0], process.BackendError)

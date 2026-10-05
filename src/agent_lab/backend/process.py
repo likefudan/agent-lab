@@ -36,8 +36,6 @@ POLL_INTERVAL = 0.5
 HEALTH_TIMEOUT = 2.0
 LOG_TAIL_LINES = 20
 
-GIB = 1024**3
-
 
 class BackendError(Exception):
     """The backend could not be started or stopped; the message says why."""
@@ -63,14 +61,29 @@ class Record:
 
     @classmethod
     def load(cls, path: Path) -> Record | None:
+        """The record, or None if there is none or it names no pid.
+
+        Unknown fields are ignored and missing ones get placeholders, so a record
+        written by another version still finds (and lets ``stop`` end) its process.
+        """
         try:
             data = json.loads(path.read_text())
-            return cls(**data)
-        except FileNotFoundError:
+        except OSError, ValueError:
             return None
-        except OSError, ValueError, TypeError:
-            # A corrupt record cannot name a process, so there is nothing to signal.
-            return None
+        if not isinstance(data, dict) or not isinstance(data.get("pid"), int):
+            return None  # nothing names a process, so there is nothing to signal
+
+        def field(name: str, kind: Any, default: Any) -> Any:
+            value = data.get(name)
+            return value if isinstance(value, kind) and not isinstance(value, bool) else default
+
+        return cls(
+            pid=data["pid"],
+            port=field("port", int, 0),
+            profile=field("profile", str, "unknown"),
+            model=field("model", str, "unknown"),
+            started_at=float(field("started_at", int | float, 0.0)),
+        )
 
     def save(self, path: Path) -> None:
         tmp = path.with_suffix(".tmp")
@@ -100,6 +113,12 @@ def process_command(pid: int) -> str | None:
 
 
 def is_backend(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)  # cheap existence check before running ps
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        pass  # exists but belongs to someone else; ps decides
     command = process_command(pid)
     return command is not None and LAUNCH_MODULE in command
 
@@ -217,7 +236,8 @@ def start(
 
     Returns the status and whether this call started it (False if a backend
     was already running). On failure or timeout the new process is stopped
-    and BackendError carries the end of the logs.
+    and BackendError carries the end of the logs. The lock is only held while
+    starting the process, so ``alab stop`` can end a backend that is still loading.
     """
     with _locked():
         current = status()
@@ -237,13 +257,19 @@ def start(
                 start_new_session=True,  # survives the terminal closing; no Ctrl-C from it
             )
         record = Record(proc.pid, settings.port, settings.profile, settings.model_id, time.time())
-        record.save(paths.backend_state())
         try:
-            return _wait_ready(proc, record, timeout, progress), True
+            record.save(paths.backend_state())
         except BaseException:
             _terminate(proc.pid, proc)
-            _clear_files()
             raise
+    try:
+        return _wait_ready(proc, record, timeout, progress), True
+    except BaseException:
+        with _locked():
+            _terminate(proc.pid, proc)
+            if Record.load(paths.backend_state()) == record:
+                _clear_files()
+        raise
 
 
 def _wait_ready(
@@ -260,7 +286,8 @@ def _wait_ready(
             raise _failure(f"the backend exited with status {code} while starting")
         ready = _read_ready(record.pid)
         if ready is not None and health(record.port) == 200:
-            return Status(State.RUNNING, record, ready, rss_bytes(record.pid))
+            memory = _read_record(paths.backend_memory(), record.pid)
+            return Status(State.RUNNING, record, ready, rss_bytes(record.pid), memory)
         now = time.monotonic()
         if now > deadline:
             raise _failure(f"the backend was not ready after {timeout:.0f}s; stopped it")
@@ -286,6 +313,8 @@ def _terminate(
     pid: int, proc: subprocess.Popen[bytes] | None, timeout: float = STOP_TIMEOUT
 ) -> bool:
     """SIGTERM, then SIGKILL after ``timeout``. Returns True if SIGKILL was needed."""
+    if proc is not None and proc.poll() is not None:
+        return False  # already reaped: its pid may belong to another process by now
     with contextlib.suppress(ProcessLookupError):
         os.kill(pid, signal.SIGTERM)
     if _wait_exit(pid, proc, timeout):

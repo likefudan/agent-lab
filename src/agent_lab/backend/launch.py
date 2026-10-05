@@ -35,6 +35,7 @@ from __future__ import annotations
 import argparse
 import faulthandler
 import importlib.metadata
+import importlib.util
 import io
 import json
 import logging
@@ -77,22 +78,25 @@ class _LogStream(io.TextIOBase):
         self._logger = logger
         self._level = level
         self._buffer = ""
+        self._lock = threading.Lock()  # HTTP handler threads write at the same time
 
     def writable(self) -> bool:
         return True
 
     def write(self, text: str) -> int:
-        self._buffer += text
-        *lines, self._buffer = self._buffer.split("\n")
+        with self._lock:
+            self._buffer += text
+            *lines, self._buffer = self._buffer.split("\n")
         for line in lines:
             if line.strip():
                 self._logger.log(self._level, line.rstrip())
         return len(text)
 
     def flush(self) -> None:
-        if self._buffer.strip():
-            self._logger.log(self._level, self._buffer.rstrip())
-        self._buffer = ""
+        with self._lock:
+            rest, self._buffer = self._buffer, ""
+        if rest.strip():
+            self._logger.log(self._level, rest.rstrip())
 
 
 def setup_logging(log_file: Path) -> None:
@@ -158,7 +162,12 @@ def start_watchdog(
     def watch() -> None:
         last_sample = 0.0
         while not stopped.is_set():
-            active = read_active()
+            try:
+                active = read_active()
+            except Exception as exc:
+                # Without a reading there is no guard; stopping is the safe choice.
+                on_exceeded(f"cannot read MLX memory use ({exc}); stopping the backend")
+                return
             reason = check_memory(active, limit)
             if reason:
                 on_exceeded(reason)
@@ -168,8 +177,8 @@ def start_watchdog(
                 last_sample = now
                 try:
                     on_sample(active)
-                except OSError:
-                    log.exception("cannot record memory use")
+                except Exception:
+                    log.exception("cannot record memory use")  # the guard itself keeps running
             stopped.wait(interval)
 
     thread = threading.Thread(target=watch, name="memory-watchdog", daemon=True)
@@ -188,8 +197,21 @@ def write_json(path: Path, info: dict[str, Any]) -> None:
     tmp.replace(path)
 
 
+def memory_record(mx: ModuleType, active: int | None = None) -> dict[str, Any]:
+    """MLX's memory use for ``alab status`` (RSS leaves out Metal buffers on macOS)."""
+    return {
+        "pid": os.getpid(),
+        "active_bytes": mx.get_active_memory() if active is None else active,
+        "peak_bytes": mx.get_peak_memory(),
+    }
+
+
 def install_hooks(
-    server: ModuleType, mx: ModuleType, settings: LaunchSettings, ready_path: Path
+    server: ModuleType,
+    mx: ModuleType,
+    settings: LaunchSettings,
+    ready_path: Path,
+    memory_path: Path,
 ) -> None:
     """Adapt mlx_lm.server (0.32.0): tool parser, readiness record, exit on fatal errors."""
     provider_cls = server.ModelProvider
@@ -211,8 +233,10 @@ def install_hooks(
             log.exception("loading the model failed")
             _exit(EXIT_LOAD_FAILED)
         seconds = time.monotonic() - started
-        parser = self.tokenizer.tool_parser
-        parser_name = parser.__module__.rpartition(".")[2] if parser else None
+        # mlx-lm records the parser it chose in the tokenizer's init_kwargs (the
+        # function's module can differ: some parsers reuse another's function).
+        init_kwargs = getattr(self.tokenizer, "init_kwargs", None) or {}
+        parser_name = init_kwargs.get("tool_parser_type") if self.tokenizer.tool_parser else None
         info = {
             "pid": os.getpid(),
             "model": settings.model_id,
@@ -229,6 +253,7 @@ def install_hooks(
             _size(info["metal_active_bytes"]),
             parser_name or "none (tool calls will not be parsed)",
         )
+        write_json(memory_path, memory_record(mx))
         write_json(ready_path, info)
 
     def run_generate(self: Any) -> None:
@@ -243,6 +268,13 @@ def install_hooks(
     generator_cls._run_generate = run_generate
 
 
+def tool_parser_exists(name: str) -> bool:
+    try:
+        return importlib.util.find_spec(f"mlx_lm.tool_parsers.{name}") is not None
+    except ImportError:
+        return False
+
+
 def _on_sigterm(signum: int, frame: FrameType | None) -> None:
     log.info("received SIGTERM; exiting")
     _exit(0)
@@ -254,6 +286,12 @@ def run(settings: LaunchSettings, ready_path: Path) -> None:
     import mlx.core as mx
     import mlx_lm.server as server
 
+    if settings.tool_parser and not tool_parser_exists(settings.tool_parser):
+        log.error(
+            "mlx-lm has no tool parser %r; check tool_parser in the profile", settings.tool_parser
+        )
+        _exit(EXIT_CONFIG)
+
     log.info(
         "starting mlx_lm.server %s (MLX %s) for %s on port %d, profile %s",
         _version("mlx-lm"),
@@ -264,13 +302,11 @@ def run(settings: LaunchSettings, ready_path: Path) -> None:
     )
     mx.set_memory_limit(settings.memory_limit)
     log.info("Metal memory limit %s (watchdog enforced)", _size(settings.memory_limit))
-    install_hooks(server, mx, settings, ready_path)
     memory_path = paths.backend_memory()
+    install_hooks(server, mx, settings, ready_path, memory_path)
 
     def record_memory(active: int) -> None:
-        # RSS does not count Metal buffers on macOS, so `alab status` shows these numbers too.
-        info = {"pid": os.getpid(), "active_bytes": active, "peak_bytes": mx.get_peak_memory()}
-        write_json(memory_path, info)
+        write_json(memory_path, memory_record(mx, active))
 
     start_watchdog(
         mx.get_active_memory, settings.memory_limit, _memory_exceeded, on_sample=record_memory
