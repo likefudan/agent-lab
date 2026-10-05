@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import io
 import json
 import logging
 import threading
@@ -60,7 +61,28 @@ def fake_modules(fail_load: bool = False, fail_generate: bool = False) -> tuple[
         def _run_generate(self) -> None:
             self._generation_failed = fail_generate
 
-    server = types.SimpleNamespace(ModelProvider=ModelProvider, ResponseGenerator=ResponseGenerator)
+    class APIHandler:
+        def __init__(self, headers: dict[str, str]) -> None:
+            self.headers = headers
+            self.wfile = io.BytesIO()
+            self.sent: list[Any] = []
+            self.handled = False
+
+        def send_response(self, code: int) -> None:
+            self.sent.append(code)
+
+        def send_header(self, name: str, value: str) -> None:
+            self.sent.append((name, value))
+
+        def end_headers(self) -> None:
+            pass
+
+        def do_POST(self) -> None:
+            self.handled = True
+
+    server = types.SimpleNamespace(
+        ModelProvider=ModelProvider, ResponseGenerator=ResponseGenerator, APIHandler=APIHandler
+    )
     mx = types.SimpleNamespace(
         get_active_memory=lambda: 15 * 1024**3, get_peak_memory=lambda: 16 * 1024**3
     )
@@ -230,3 +252,43 @@ def test_watchdog_survives_a_failing_sample() -> None:
 
 def test_tool_parser_exists() -> None:
     assert launch.tool_parser_exists("no_such_parser_xyz") is False
+
+
+def test_browser_requests_are_rejected(lab_home: Path, tmp_path: Path) -> None:
+    server, mx = fake_modules()
+    launch.install_hooks(
+        server, mx, launch_settings(config.load_profile()), tmp_path / "r", tmp_path / "m"
+    )
+    browser = server.APIHandler({"Origin": "https://example.com"})
+    browser.do_POST()
+    assert not browser.handled
+    assert browser.sent[0] == 403
+    assert b"browser requests are not accepted" in browser.wfile.getvalue()
+    local = server.APIHandler({})
+    local.do_POST()
+    assert local.handled and local.sent == []
+
+
+def test_request_bodies_are_not_logged() -> None:
+    record = logging.LogRecord(
+        "x",
+        logging.ERROR,
+        __file__,
+        1,
+        "Invalid JSON in request: %s. Raw body: %s",
+        ("bad", "{secret"),
+        None,
+    )
+    assert launch._NoBodies().filter(record)
+    assert record.getMessage() == "Invalid JSON in request: bad. [request body omitted]"
+    plain = logging.LogRecord("x", logging.INFO, __file__, 1, "hello %s", ("you",), None)
+    launch._NoBodies().filter(plain)
+    assert plain.getMessage() == "hello you"
+
+
+def test_write_json_replaces_the_file_and_leaves_no_temp_files(tmp_path: Path) -> None:
+    path = tmp_path / "state.json"
+    launch.write_json(path, {"a": 1})
+    launch.write_json(path, {"a": 2})
+    assert json.loads(path.read_text()) == {"a": 2}
+    assert [p.name for p in tmp_path.iterdir()] == ["state.json"]

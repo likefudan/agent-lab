@@ -3,8 +3,8 @@
 # tiny CI model (profile ci-tiny):
 #
 #   1. `alab serve` starts the backend; a second `serve` finds it and starts nothing;
-#   2. a chat request (plain and streaming) gets an answer; `status` shows pid,
-#      port, RSS and the log;
+#   2. a chat request (plain and streaming) gets an answer, a browser request is
+#      refused; `status` shows pid, port, memory and the log;
 #   3. `alab stop` ends the process and frees the port;
 #   4. a backend killed from outside is reported by `status`, with the log path;
 #   5. with a very low Metal memory limit, a long prompt makes the backend stop
@@ -98,6 +98,9 @@ code=$(chat "$WORK/stream.json" "$WORK/stream.out")
 head -n 3 "$WORK/stream.out"
 [ "$code" = 200 ] || fail "streaming request returned HTTP $code"
 grep -F "data: [DONE]" "$WORK/stream.out" > /dev/null || fail "stream did not end with [DONE]"
+code=$(curl -s --noproxy '*' -o /dev/null -w '%{http_code}' -H 'Origin: https://example.com' \
+    -H 'Content-Type: text/plain' --data @"$WORK/chat.json" http://127.0.0.1:8100/v1/chat/completions || true)
+[ "$code" = 403 ] || fail "a browser request (with Origin) returned HTTP $code, expected 403"
 
 step "status"
 alab status | tee "$WORK/status.txt" || fail "status exited with $? while running"

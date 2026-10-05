@@ -202,3 +202,19 @@ def test_stop_works_while_a_backend_is_loading(backend: object) -> None:
     assert was_running and time.monotonic() - started < 10
     thread.join(15)
     assert errors and isinstance(errors[0], process.BackendError)
+
+
+@pytest.mark.parametrize("pid", [True, 0, -1, "42", None])
+def test_record_without_a_usable_pid_is_ignored(lab_home: Path, pid: object) -> None:
+    paths.ensure_layout()
+    paths.backend_state().write_text(json.dumps({"pid": pid, "port": 8100}))
+    assert process.Record.load(paths.backend_state()) is None
+
+
+def test_previous_console_log_is_kept(backend: object) -> None:
+    paths.ensure_layout()
+    paths.backend_console_log().write_text("Segmentation fault: 11\n")
+    port = free_port()
+    process.start(settings(port), 20, command(port, "ok"))
+    kept = paths.backend_console_log().with_name(paths.backend_console_log().name + ".1")
+    assert kept.read_text() == "Segmentation fault: 11\n"

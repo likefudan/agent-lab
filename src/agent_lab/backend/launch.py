@@ -15,8 +15,10 @@ memory is wired. So this wrapper does two things:
    all of the process's GPU memory at once, and ``alab status`` reports the exit
    with the log path.
 
-The gateway's token limit (T05) keeps requests from getting there; this guard
-is the second layer (design section 3.3).
+The watchdog reacts after the fact: one evaluation step (at most one prefill
+chunk of ``prefill_step_size`` tokens) can overshoot the limit before it fires.
+The gateway's token limit (T05) is the primary guard that keeps requests from
+getting there; the watchdog is the second layer (design section 3.3).
 
 Three small hooks adapt mlx-lm 0.32.0 (pinned in ``pyproject.toml``):
 
@@ -33,6 +35,7 @@ Three small hooks adapt mlx-lm 0.32.0 (pinned in ``pyproject.toml``):
 from __future__ import annotations
 
 import argparse
+import contextlib
 import faulthandler
 import importlib.metadata
 import importlib.util
@@ -42,6 +45,7 @@ import logging
 import os
 import signal
 import sys
+import tempfile
 import threading
 import time
 from collections.abc import Callable
@@ -99,6 +103,27 @@ class _LogStream(io.TextIOBase):
             self._logger.log(self._level, rest.rstrip())
 
 
+class _LogFileHandler(TimedRotatingFileHandler):
+    """Reports its own failures (disk full, rotation) on fd 2, not through logging again."""
+
+    def handleError(self, record: logging.LogRecord) -> None:
+        with contextlib.suppress(Exception):
+            print(f"backend log: cannot write a record: {sys.exc_info()[1]}", file=sys.__stderr__)
+
+
+class _NoBodies(logging.Filter):
+    """Cut request bodies from mlx-lm's messages: it logs the raw body when JSON is invalid."""
+
+    MARKER = "Raw body:"
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        message = record.getMessage()
+        if self.MARKER in message:
+            record.msg = message.split(self.MARKER, 1)[0] + "[request body omitted]"
+            record.args = None
+        return True
+
+
 def setup_logging(log_file: Path) -> None:
     """Log to ``log_file``, rotated at midnight; Python's stdout and stderr go there too.
 
@@ -106,9 +131,8 @@ def setup_logging(log_file: Path) -> None:
     points at the console log.
     """
     log_file.parent.mkdir(parents=True, exist_ok=True)
-    handler = TimedRotatingFileHandler(
-        log_file, when="midnight", backupCount=LOG_DAYS, encoding="utf-8"
-    )
+    handler = _LogFileHandler(log_file, when="midnight", backupCount=LOG_DAYS, encoding="utf-8")
+    handler.addFilter(_NoBodies())
     handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s"))
     root = logging.getLogger()
     root.handlers[:] = [handler]
@@ -192,9 +216,15 @@ def _memory_exceeded(reason: str) -> None:
 
 
 def write_json(path: Path, info: dict[str, Any]) -> None:
-    tmp = path.with_suffix(".tmp")
-    tmp.write_text(json.dumps(info, indent=2) + "\n")
-    tmp.replace(path)
+    """Replace ``path`` atomically; safe when several threads write the same file."""
+    fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w") as f:
+            f.write(json.dumps(info, indent=2) + "\n")
+        os.replace(tmp, path)
+    except BaseException:
+        Path(tmp).unlink(missing_ok=True)
+        raise
 
 
 def memory_record(mx: ModuleType, active: int | None = None) -> dict[str, Any]:
@@ -213,9 +243,12 @@ def install_hooks(
     ready_path: Path,
     memory_path: Path,
 ) -> None:
-    """Adapt mlx_lm.server (0.32.0): tool parser, readiness record, exit on fatal errors."""
+    """Adapt mlx_lm.server (0.32.0): tool parser, readiness record, exit on fatal errors,
+    and no requests from web pages."""
     provider_cls = server.ModelProvider
     generator_cls = server.ResponseGenerator
+    handler_cls = server.APIHandler
+    original_do_post = handler_cls.do_POST
     original_init = provider_cls.__init__
     original_load_default = provider_cls.load_default
     original_run_generate = generator_cls._run_generate
@@ -263,6 +296,20 @@ def install_hooks(
             time.sleep(GENERATION_DIED_GRACE)
             _exit(EXIT_GENERATION_DIED)
 
+    def do_post(self: Any) -> None:
+        # Browsers add Origin; the gateway and local tools do not. Without this, any web
+        # page could send the unauthenticated backend work with a "simple" no-cors POST.
+        if self.headers.get("Origin") is not None:
+            body = b'{"error": {"message": "browser requests are not accepted"}}'
+            self.send_response(403)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
+        original_do_post(self)
+
+    handler_cls.do_POST = do_post
     provider_cls.__init__ = init
     provider_cls.load_default = load_default
     generator_cls._run_generate = run_generate

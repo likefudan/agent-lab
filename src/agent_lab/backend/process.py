@@ -70,7 +70,8 @@ class Record:
             data = json.loads(path.read_text())
         except OSError, ValueError:
             return None
-        if not isinstance(data, dict) or not isinstance(data.get("pid"), int):
+        pid = data.get("pid") if isinstance(data, dict) else None
+        if not isinstance(pid, int) or isinstance(pid, bool) or pid <= 0:
             return None  # nothing names a process, so there is nothing to signal
 
         def field(name: str, kind: Any, default: Any) -> Any:
@@ -78,7 +79,7 @@ class Record:
             return value if isinstance(value, kind) and not isinstance(value, bool) else default
 
         return cls(
-            pid=data["pid"],
+            pid=pid,
             port=field("port", int, 0),
             profile=field("profile", str, "unknown"),
             model=field("model", str, "unknown"),
@@ -86,9 +87,7 @@ class Record:
         )
 
     def save(self, path: Path) -> None:
-        tmp = path.with_suffix(".tmp")
-        tmp.write_text(json.dumps(asdict(self), indent=2) + "\n")
-        tmp.replace(path)
+        launch.write_json(path, asdict(self))
 
 
 @dataclass(frozen=True)
@@ -246,6 +245,9 @@ def start(
         _clear_files()
         paths.ensure_layout()
         console = paths.backend_console_log()
+        if console.exists() and console.stat().st_size:
+            # Keep the previous run's native output: it may hold the crash that ended it.
+            console.replace(console.with_name(console.name + ".1"))
         with console.open("wb") as out:
             proc = subprocess.Popen(
                 command or launch_command(settings.profile),
@@ -305,7 +307,7 @@ def _wait_exit(pid: int, proc: subprocess.Popen[bytes] | None, timeout: float) -
                 return True
         elif not is_backend(pid):
             return True
-        time.sleep(0.1)
+        time.sleep(0.25)
     return False
 
 
