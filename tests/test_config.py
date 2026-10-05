@@ -145,7 +145,9 @@ def test_cross_field_rules(changes: dict[tuple[str, str], Any], expected: str) -
 
 
 def test_missing_profile_lists_available(lab_home: Path) -> None:
-    with pytest.raises(ConfigError, match=r'profile "nope" not found .*available: mac-24gb'):
+    with pytest.raises(
+        ConfigError, match=r'profile "nope" not found .*available: ci-tiny, mac-24gb'
+    ):
         load_profile("nope")
 
 
@@ -159,3 +161,35 @@ def test_toml_syntax_error(lab_home: Path) -> None:
     (lab_home / "config/profiles/broken.toml").write_text("[gateway\nport = 1\n")
     with pytest.raises(ConfigError, match=r"cannot parse .*broken\.toml"):
         load_profile("broken")
+
+
+def test_backend_launch_fields(lab_home: Path) -> None:
+    backend = load_profile().backend
+    assert backend.tool_parser == "qwen3_coder"
+    assert backend.enable_thinking is False
+    assert (backend.temperature, backend.top_p, backend.top_k) == (0.7, 0.8, 20)
+    assert backend.start_timeout_seconds == 600
+
+
+@pytest.mark.parametrize(
+    ("key", "value", "message"),
+    [
+        ("tool_parser", "../evil", "not a tool parser name"),
+        ("temperature", 3.5, "must be between 0.0 and 2.0"),
+        ("top_p", "0.8", "expected a number"),
+        ("top_p", True, "expected a number"),
+        ("top_k", -1, "must be at least 0"),
+        ("enable_thinking", "no", "expected true or false"),
+        ("start_timeout_seconds", 0, "must be at least 1"),
+    ],
+)
+def test_backend_launch_fields_are_validated(key: str, value: Any, message: str) -> None:
+    data = _default_data()
+    data["backend"][key] = value
+    assert message in _errors(data)
+
+
+def test_integer_temperature_is_accepted() -> None:
+    data = _default_data()
+    data["backend"]["temperature"] = 1
+    assert parse_profile("test", Path("test.toml"), data).backend.temperature == 1.0

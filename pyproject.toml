@@ -5,10 +5,14 @@ description = "Self-contained local LLM serving on Apple Silicon: Qwen3.8-27B wi
 readme = "README.md"
 requires-python = "==3.14.*"
 dependencies = [
-    "huggingface-hub>=2.1.1",
+    # transformers 5.x (needed by mlx-lm) requires huggingface-hub below 2.0.
+    "huggingface-hub>=1.33.0,<2",
     # Pinned exactly: MLX reads Metal's recommended working set (T03) and T04's
     # mlx-lm must stay compatible with this version. macOS only, like mlx-lm.
     "mlx==0.32.3; platform_system == 'Darwin'",
+    # Pinned exactly: the launch wrapper hooks into mlx_lm.server internals (T04).
+    # 0.32.0 runs Qwen3.8 (model_type qwen3_5) and has the qwen3_coder tool parser.
+    "mlx-lm==0.32.0; platform_system == 'Darwin'",
 ]
 
 [project.scripts]
@@ -48,6 +52,8 @@ module = "huggingface_hub.*"
 implicit_reexport = true
 
 [[tool.mypy.overrides]]
-# MLX is only installed on macOS; on Linux (development) the import is untyped.
-module = "mlx.*"
+# MLX and mlx-lm are only installed on macOS. Skip them everywhere so type checks
+# give the same result on Linux (development) and macOS (CI).
+module = ["mlx.*", "mlx_lm.*"]
 ignore_missing_imports = true
+follow_imports = "skip"

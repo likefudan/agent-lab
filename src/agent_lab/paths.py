@@ -83,6 +83,30 @@ def run_dir() -> Path:
     return var_dir() / "run"
 
 
+def backend_log() -> Path:
+    """The backend's own log, rotated at midnight (older days get a date suffix)."""
+    return logs_dir() / "backend.log"
+
+
+def backend_console_log() -> Path:
+    """Raw stdout/stderr of the last backend run: crashes from native code end up here."""
+    return logs_dir() / "backend.console.log"
+
+
+def backend_state() -> Path:
+    """pid, port and profile of the backend started by ``alab serve``."""
+    return run_dir() / "backend.json"
+
+
+def backend_ready() -> Path:
+    """Written by the backend once the model is loaded."""
+    return run_dir() / "backend.ready.json"
+
+
+def backend_lock() -> Path:
+    return run_dir() / "backend.lock"
+
+
 def bench_dir() -> Path:
     return var_dir() / "bench"
 

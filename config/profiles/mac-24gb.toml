@@ -10,7 +10,13 @@ port = 8100
 prefill_step_size = 2048
 prompt_cache_size = 1
 prompt_cache_bytes = "2.2GB"      # enough for one full-length conversation
-metal_memory_limit = "19.5GB"     # set by the launch wrapper; overflow raises instead of panicking
+metal_memory_limit = "19.5GB"     # the launch wrapper stops the backend if MLX uses more (T04)
+tool_parser = "qwen3_coder"       # forced: mlx-lm's auto-detection is unreliable for Qwen3.5+
+enable_thinking = false           # chat template argument; thinking is off by default
+temperature = 0.7                 # sampling defaults: the model card's non-thinking values
+top_p = 0.8
+top_k = 20
+start_timeout_seconds = 600       # loading 15GB of weights from disk
 
 [gateway]
 port = 8000
