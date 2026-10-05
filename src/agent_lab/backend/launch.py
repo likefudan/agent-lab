@@ -112,15 +112,17 @@ class _LogFileHandler(TimedRotatingFileHandler):
 
 
 class _NoBodies(logging.Filter):
-    """Cut request bodies from mlx-lm's messages: it logs the raw body when JSON is invalid."""
+    """Cut request bodies from mlx-lm's messages: it logs the body of a request it rejects."""
 
-    MARKER = "Raw body:"
+    MARKERS = ("Raw body:", "Invalid Request Body:")
 
     def filter(self, record: logging.LogRecord) -> bool:
         message = record.getMessage()
-        if self.MARKER in message:
-            record.msg = message.split(self.MARKER, 1)[0] + "[request body omitted]"
-            record.args = None
+        for marker in self.MARKERS:
+            if marker in message:
+                record.msg = message.split(marker, 1)[0] + marker + " [request body omitted]"
+                record.args = None
+                break
         return True
 
 

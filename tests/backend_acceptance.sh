@@ -101,13 +101,16 @@ grep -F "data: [DONE]" "$WORK/stream.out" > /dev/null || fail "stream did not en
 code=$(curl -s --noproxy '*' -o /dev/null -w '%{http_code}' -H 'Origin: https://example.com' \
     -H 'Content-Type: text/plain' --data @"$WORK/chat.json" http://127.0.0.1:8100/v1/chat/completions || true)
 [ "$code" = 403 ] || fail "a browser request (with Origin) returned HTTP $code, expected 403"
+echo '[{"role": "user", "content": "agentlab-secret"}]' > "$WORK/notobject.json"
+code=$(chat "$WORK/notobject.json" /dev/null)
+[ "$code" = 400 ] || fail "a body that is not a JSON object returned HTTP $code, expected 400"
 
 step "status"
 alab status | tee "$WORK/status.txt" || fail "status exited with $? while running"
 grep "backend: running (pid $pid, port 8100" "$WORK/status.txt" > /dev/null || fail "status does not show the pid and port"
 grep -E "memory: Metal [0-9.]+ GB in use, peak [0-9.]+ GB; process RSS [0-9.]+ GB" "$WORK/status.txt" > /dev/null || fail "status does not show memory"
 grep "log: $REPO/var/logs/backend.log" "$WORK/status.txt" > /dev/null || fail "status does not show the log"
-if grep -F '"messages"' "$REPO"/var/logs/backend*.log > /dev/null; then fail "a request body was logged"; fi
+if grep -E '"messages"|agentlab-secret' "$REPO"/var/logs/backend*.log > /dev/null; then fail "a request body was logged"; fi
 
 step "stop"
 alab stop | tee "$WORK/stop.txt"

@@ -44,6 +44,8 @@ def preflight(profile: config.Profile, force: bool) -> list[str]:
 
     port = profile.backend.port
     if doctor.port_in_use(port):
+        if process.status().state is not process.State.STOPPED:
+            raise ServeError("another alab serve started the backend meanwhile; see ./alab status")
         owner = doctor.port_owner(port)
         by = f" by {owner}" if owner else ""
         raise ServeError(f"port {port} is already in use{by}")

@@ -26,7 +26,7 @@ In scope:
    - If the prompt exceeds `max_context - min_output_tokens`, return 400 with `error.code = "context_length_exceeded"` in OpenAI's error format.
    - Otherwise clamp `max_tokens` to `min(requested, max_output_tokens, max_context - prompt_tokens)` before forwarding. Accept `max_completion_tokens` too.
 4. Parameters:
-   - The external model name is `qwen3.8-27b`, replaced with the backend's internal name when forwarding; any other model name gets an OpenAI-style "model not found" error. The backend's internal name is `default_model` (or leave `model` out): mlx-lm treats any other name as a Hugging Face repository to load [found in T04].
+   - The external model name is `qwen3.8-27b`, replaced with the backend's internal name when forwarding; any other model name gets an OpenAI-style "model not found" error. The backend's internal name is `default_model` (or leave `model` out): mlx-lm treats any other name as a Hugging Face repository to load [found in T04]. Also drop `adapters`, `draft_model` and `num_draft_tokens` from forwarded requests: mlx-lm would unload the model and load whatever they name [found in T04].
    - `reasoning_effort`: `none` (default) / `low` / `medium` / `high`, converted into mlx-lm `chat_template_kwargs`; confirm the exact argument names against the model's chat template.
    - Fill in the thinking or non-thinking recommended sampling values when the client sets none.
    - Image content returns 400, explaining that v1 does not support it.

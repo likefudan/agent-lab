@@ -280,7 +280,12 @@ def test_request_bodies_are_not_logged() -> None:
         None,
     )
     assert launch._NoBodies().filter(record)
-    assert record.getMessage() == "Invalid JSON in request: bad. [request body omitted]"
+    assert record.getMessage() == "Invalid JSON in request: bad. Raw body: [request body omitted]"
+    not_object = logging.LogRecord(
+        "x", logging.ERROR, __file__, 1, 'Invalid Request Body: [{"content": "secret"}]', None, None
+    )
+    launch._NoBodies().filter(not_object)
+    assert not_object.getMessage() == "Invalid Request Body: [request body omitted]"
     plain = logging.LogRecord("x", logging.INFO, __file__, 1, "hello %s", ("you",), None)
     launch._NoBodies().filter(plain)
     assert plain.getMessage() == "hello you"
