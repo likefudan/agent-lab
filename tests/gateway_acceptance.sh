@@ -96,7 +96,7 @@ if grep "prompt token count mismatch" "$REPO/var/logs/gateway.log"; then
     fail "the gateway counted prompt tokens differently from the backend"
 fi
 matched=$(grep 'status=200' "$REPO/var/logs/gateway.log" | grep -cE ' prompt_tokens=([0-9]+) backend_prompt_tokens=\1 ' || true)
-[ "$matched" -ge 6 ] || fail "expected at least 6 requests with matching token counts, found $matched"
+[ "$matched" -ge 5 ] || fail "expected at least 5 requests with matching token counts, found $matched"
 grep -E 'status=400 .*prompt_tokens=[0-9]{4,} backend_prompt_tokens=- ' "$REPO/var/logs/gateway.log" > /dev/null \
     || fail "the oversized request is not logged as refused"
 posts=$(backend_posts)

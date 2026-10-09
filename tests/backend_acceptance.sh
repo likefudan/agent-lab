@@ -63,6 +63,7 @@ alab pull --profile "$PROFILE" > "$WORK/pull.txt" 2>&1 || {
     fail "pull failed"
 }
 alab gpu-limit show --profile "$PROFILE" || true
+alab keys create ci > /dev/null  # serve refuses to start without an API key (T05)
 
 step "serve"
 alab serve --profile "$PROFILE" | tee "$WORK/serve.txt" || fail "serve failed"

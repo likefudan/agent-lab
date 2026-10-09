@@ -215,10 +215,14 @@ class Gateway:
             try:
                 async with self.client.stream("POST", "/v1/chat/completions", json=body) as resp:
                     if resp.status_code != 200:
+                        # Its message can name local paths; it goes to the log, not the client.
                         text = (await resp.aread())[:500].decode("utf-8", "replace")
                         log.error("the backend answered %d: %s", resp.status_code, text)
                         status = 502 if resp.status_code >= 500 else 400
-                        raise BackendError(status, f"the model server rejected the request: {text}")
+                        raise BackendError(
+                            status,
+                            f"the model server rejected the request (HTTP {resp.status_code})",
+                        )
                     async for line in resp.aiter_lines():
                         if not line.startswith("data:"):
                             continue  # blank lines and mlx-lm's own keepalive comments

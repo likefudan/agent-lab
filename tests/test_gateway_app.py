@@ -377,8 +377,13 @@ def test_request_log_has_no_bodies(
 ) -> None:
     caplog.set_level("INFO", logger="agent_lab.gateway")
     chat(run, key, messages=[{"role": "user", "content": "agentlab-secret words"}])
-    lines = [r.getMessage() for r in caplog.records if r.name == "agent_lab.gateway.requests"]
-    assert len(lines) == 1
-    assert lines[0].startswith("key=test status=200 stream=false effort=default prompt_tokens=2 ")
-    assert "completion_tokens=3" in lines[0]
+
+    def lines() -> list[str]:
+        records = caplog.records
+        return [r.getMessage() for r in records if r.name == "agent_lab.gateway.requests"]
+
+    wait_for(lambda: len(lines()) == 1)  # written once the response has gone out
+    line = lines()[0]
+    assert line.startswith("key=test status=200 stream=false effort=default prompt_tokens=2 ")
+    assert "backend_prompt_tokens=2 " in line and "completion_tokens=3" in line
     assert "agentlab-secret" not in caplog.text

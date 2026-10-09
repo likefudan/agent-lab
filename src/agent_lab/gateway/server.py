@@ -145,6 +145,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"gateway: {exc}", file=sys.stderr)
         return EXIT_CONFIG
     setup_logging(paths.gateway_log())
+    logging.getLogger("httpx").setLevel(logging.WARNING)  # a line per backend call is noise
     try:
         run(profile)
     except Exception:
