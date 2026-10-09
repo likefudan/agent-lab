@@ -32,6 +32,8 @@ Clients use `http://127.0.0.1:8000/v1` with the model name `qwen3.8-27b` and `Au
 
 The gateway (design section 6.3) is the only endpoint clients talk to. It counts every prompt with the model's own tokenizer and chat template and refuses one that leaves less than `min_output_tokens` of the context (`context_length_exceeded`); otherwise it lowers `max_tokens` to what fits. It forwards one request at a time, keeps up to `queue_size` waiting and answers 429 beyond that. Streaming responses start at once and carry a `: keep-alive` comment every `heartbeat_seconds` while the request waits or the prompt is processed. `reasoning_effort` (`none`, `low`, `medium`, `high`) turns thinking on per request. A client that disconnects stops its request. Logs: `var/logs/gateway.log` (one line per request with the key name, token counts and times) and `var/logs/backend.log`; neither contains request or response bodies.
 
+`./alab bench` measures the running service through the gateway with a temporary key (revoked afterwards): prompt cache reuse, prefill and time to first token from 1K to 32K tokens, decode speed, agent conversations that fill `max_context` (with the design's pass criteria), a 10-minute sustained run and an offline request. It takes about an hour on the 24GB Mac; `--only agent,offline` runs some sections, `--quick` is the short CI version. Reports go to `var/bench/<time>/report.md` and `report.json`; measured results are in [docs/benchmarks/](docs/benchmarks/).
+
 Everything is installed under `.tools/`, `.venv/` and `var/` in this directory; nothing is written to your home directory or shell configuration. To uninstall, delete the directory. Use `./alab` (or `source .tools/env.sh` in a shell) to run commands with the project's own environment.
 
 ## Documentation
@@ -50,6 +52,7 @@ tests/acceptance.sh          # fresh-clone, isolation and checksum checks on the
 tests/models_acceptance.sh   # downloads the CI model: resume, verification and isolation checks
 tests/backend_acceptance.sh  # serves the CI model: serve, status, stop, crash and memory limit
 tests/gateway_acceptance.sh  # the CI model behind the gateway, through the openai SDK
+tests/bench_acceptance.sh    # a quick alab bench with the CI model (the flow, not the numbers)
 .venv/bin/python tests/tool_call_check.py --url http://127.0.0.1:8000 --api-key <key> --model qwen3.8-27b
                              # tool calls, thinking and speed through the gateway
 ```

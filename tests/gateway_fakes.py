@@ -49,6 +49,7 @@ class FakeBackend:
     started: int = 0
     finished: int = 0
     cancelled: int = 0
+    stats: list[dict[str, Any]] = field(default_factory=list)  # like /agent-lab/requests
 
     def chunk(self, delta: dict[str, Any], finish: str | None = None) -> bytes:
         body = {
@@ -92,6 +93,22 @@ class FakeBackend:
                     "prompt_tokens_details": {"cached_tokens": 0},
                 },
             }
+            self.stats.append(
+                {
+                    "id": len(self.stats) + 1,
+                    "prompt_tokens": prompt_tokens,
+                    "cached_tokens": 0,
+                    "generated_tokens": len(self.pieces),
+                    "first_token_seconds": 0.01,
+                    "total_seconds": 0.01 + 0.01 * len(self.pieces),
+                    "metal_active_before_bytes": 1024**3,
+                    "metal_peak_bytes": 2 * 1024**3,
+                    "metal_active_after_bytes": 1024**3,
+                    "metal_cache_after_bytes": 0,
+                    "prompt_cache_before_bytes": 0,
+                    "prompt_cache_before_entries": 0,
+                }
+            )
             yield f"data: {json.dumps(usage)}\n\n".encode()
             yield b"data: [DONE]\n\n"
             self.finished += 1
@@ -107,6 +124,9 @@ class FakeBackend:
         tokens = WordCounter().count(body["messages"], body.get("tools"), {})
         return StreamingResponse(self.events(tokens), media_type="text/event-stream")
 
+    async def request_stats(self, request: Request) -> Response:
+        return JSONResponse({"requests": self.stats})
+
     async def health(self, request: Request) -> Response:
         return JSONResponse({"status": "ok"}, status_code=200 if self.healthy else 503)
 
@@ -115,6 +135,7 @@ class FakeBackend:
             routes=[
                 Route("/v1/chat/completions", self.chat, methods=["POST"]),
                 Route("/health", self.health, methods=["GET"]),
+                Route("/agent-lab/requests", self.request_stats, methods=["GET"]),
             ]
         )
 
@@ -174,6 +195,7 @@ class Running:
     backend: FakeBackend
     counter: WordCounter
     url: str
+    backend_url: str
 
 
 @contextmanager
@@ -196,7 +218,13 @@ def running_gateway(
     counter = WordCounter()
     gateway = Gateway(settings, KeyStore(), counter)
     with serving(create_app(gateway), gateway_port):
-        info = Running(gateway, backend, counter, f"http://127.0.0.1:{gateway_port}")
+        info = Running(
+            gateway,
+            backend,
+            counter,
+            f"http://127.0.0.1:{gateway_port}",
+            f"http://127.0.0.1:{backend_port}",
+        )
         if backend_running:
             with serving(backend.app(), backend_port):
                 yield info

@@ -29,7 +29,11 @@ Three small hooks adapt mlx-lm 0.32.0 (pinned in ``pyproject.toml``):
   memory, which is how ``alab serve`` knows the backend is ready (mlx-lm's
   ``/health`` already answers while the model is still loading);
 - if the model fails to load or the generation thread dies, the process exits
-  instead of staying up and failing every request.
+  instead of staying up and failing every request;
+- each request's timing, prompt cache use and peak Metal memory are kept for
+  ``GET /agent-lab/requests``, which ``alab bench`` reads (T06). MLX's peak
+  counter is reset when a request starts, which is exact because the backend
+  serves one request at a time; ``alab status`` still shows the lifetime peak.
 """
 
 from __future__ import annotations
@@ -48,7 +52,8 @@ import sys
 import tempfile
 import threading
 import time
-from collections.abc import Callable
+from collections import deque
+from collections.abc import Callable, Iterator
 from logging.handlers import TimedRotatingFileHandler
 from pathlib import Path
 from types import FrameType, ModuleType
@@ -67,6 +72,8 @@ EXIT_GENERATION_DIED = 4
 EXIT_MEMORY_LIMIT = 5
 MEMORY_SAMPLE_INTERVAL = 2.0  # seconds between memory records for `alab status`
 GENERATION_DIED_GRACE = 2.0  # seconds for mlx-lm to send the in-flight request its error
+REQUESTS_PATH = "/agent-lab/requests"  # per-request statistics for `alab bench`
+REQUEST_LOG_SIZE = 64  # requests kept for REQUESTS_PATH
 
 # Environment of the server: models only ever come from `alab pull` (design section 9).
 OFFLINE_ENV = {"HF_HUB_OFFLINE": "1", "HF_HUB_DISABLE_TELEMETRY": "1"}
@@ -229,13 +236,70 @@ def write_json(path: Path, info: dict[str, Any]) -> None:
         raise
 
 
-def memory_record(mx: ModuleType, active: int | None = None) -> dict[str, Any]:
+class PeakTracker:
+    """MLX's peak memory, per request and over the process's life.
+
+    ``start_window`` resets MLX's peak counter when a request starts; the
+    lifetime peak keeps whatever earlier windows reached.
+    """
+
+    def __init__(self, mx: ModuleType) -> None:
+        self._mx = mx
+        self._lifetime = 0
+        self._lock = threading.Lock()
+
+    def start_window(self) -> None:
+        with self._lock:
+            self._lifetime = max(self._lifetime, self._mx.get_peak_memory())
+            self._mx.reset_peak_memory()
+
+    def window(self) -> int:
+        """The peak since the last ``start_window``."""
+        peak: int = self._mx.get_peak_memory()
+        return peak
+
+    def lifetime(self) -> int:
+        with self._lock:
+            return max(self._lifetime, self.window())
+
+
+class RequestLog:
+    """Statistics of the last requests, oldest first, each with an increasing ``id``."""
+
+    def __init__(self, size: int = REQUEST_LOG_SIZE) -> None:
+        self._entries: deque[dict[str, Any]] = deque(maxlen=size)
+        self._next_id = 1
+        self._lock = threading.Lock()
+
+    def add(self, entry: dict[str, Any]) -> None:
+        with self._lock:
+            self._entries.append({"id": self._next_id, **entry})
+            self._next_id += 1
+
+    def snapshot(self) -> list[dict[str, Any]]:
+        with self._lock:
+            return [dict(e) for e in self._entries]
+
+
+def memory_record(mx: ModuleType, peaks: PeakTracker, active: int | None = None) -> dict[str, Any]:
     """MLX's memory use for ``alab status`` (RSS leaves out Metal buffers on macOS)."""
     return {
         "pid": os.getpid(),
         "active_bytes": mx.get_active_memory() if active is None else active,
-        "peak_bytes": mx.get_peak_memory(),
+        "peak_bytes": peaks.lifetime(),
     }
+
+
+def _send_json(handler: Any, code: int, payload: Any) -> None:
+    body = json.dumps(payload).encode()
+    handler.send_response(code)
+    handler.send_header("Content-Type", "application/json")
+    handler.send_header("Content-Length", str(len(body)))
+    handler.end_headers()
+    handler.wfile.write(body)
+
+
+_BROWSER_REFUSED = {"error": {"message": "browser requests are not accepted"}}
 
 
 def install_hooks(
@@ -244,16 +308,24 @@ def install_hooks(
     settings: LaunchSettings,
     ready_path: Path,
     memory_path: Path,
+    peaks: PeakTracker | None = None,
+    requests: RequestLog | None = None,
 ) -> None:
     """Adapt mlx_lm.server (0.32.0): tool parser, readiness record, exit on fatal errors,
-    and no requests from web pages."""
+    per-request statistics and no requests from web pages."""
+    if peaks is None:
+        peaks = PeakTracker(mx)
+    if requests is None:
+        requests = RequestLog()
     provider_cls = server.ModelProvider
     generator_cls = server.ResponseGenerator
     handler_cls = server.APIHandler
     original_do_post = handler_cls.do_POST
+    original_do_get = handler_cls.do_GET
     original_init = provider_cls.__init__
     original_load_default = provider_cls.load_default
     original_run_generate = generator_cls._run_generate
+    original_generate = generator_cls.generate
 
     def init(self: Any, cli_args: argparse.Namespace) -> None:
         original_init(self, cli_args)
@@ -288,7 +360,7 @@ def install_hooks(
             _size(info["metal_active_bytes"]),
             parser_name or "none (tool calls will not be parsed)",
         )
-        write_json(memory_path, memory_record(mx))
+        write_json(memory_path, memory_record(mx, peaks))
         write_json(ready_path, info)
 
     def run_generate(self: Any) -> None:
@@ -298,20 +370,72 @@ def install_hooks(
             time.sleep(GENERATION_DIED_GRACE)
             _exit(EXIT_GENERATION_DIED)
 
+    def generate(
+        self: Any, request: Any, args: Any, progress_callback: Any = None
+    ) -> tuple[Any, Iterator[Any]]:
+        # Requests run one at a time (concurrency 1), so the peak window is this request's.
+        peaks.start_window()
+        started = time.monotonic()
+        entry: dict[str, Any] = {
+            "started_at": round(time.time(), 3),
+            "metal_active_before_bytes": mx.get_active_memory(),
+            "prompt_cache_before_bytes": self.prompt_cache.nbytes,
+            "prompt_cache_before_entries": len(self.prompt_cache),
+        }
+        ctx, responses = original_generate(self, request, args, progress_callback)
+
+        def timed() -> Iterator[Any]:
+            first: float | None = None
+            count = 0
+            try:
+                for response in responses:
+                    if first is None:
+                        first = time.monotonic()
+                    count += 1
+                    yield response
+            finally:
+                # Also when the client went away: the handler stops iterating.
+                entry.update(
+                    prompt_tokens=len(ctx.prompt),
+                    cached_tokens=ctx.prompt_cache_count,
+                    generated_tokens=count,
+                    first_token_seconds=None if first is None else round(first - started, 4),
+                    total_seconds=round(time.monotonic() - started, 4),
+                    metal_peak_bytes=peaks.window(),
+                    metal_active_after_bytes=mx.get_active_memory(),
+                    metal_cache_after_bytes=mx.get_cache_memory(),
+                )
+                requests.add(entry)
+
+        return ctx, timed()
+
     def do_post(self: Any) -> None:
         # Browsers add Origin; the gateway and local tools do not. Without this, any web
         # page could send the unauthenticated backend work with a "simple" no-cors POST.
         if self.headers.get("Origin") is not None:
-            body = b'{"error": {"message": "browser requests are not accepted"}}'
-            self.send_response(403)
-            self.send_header("Content-Type", "application/json")
-            self.send_header("Content-Length", str(len(body)))
-            self.end_headers()
-            self.wfile.write(body)
+            _send_json(self, 403, _BROWSER_REFUSED)
             return
         original_do_post(self)
 
+    def do_get(self: Any) -> None:
+        if self.path.partition("?")[0] != REQUESTS_PATH:
+            original_do_get(self)
+            return
+        if self.headers.get("Origin") is not None:
+            _send_json(self, 403, _BROWSER_REFUSED)
+            return
+        cache = self.response_generator.prompt_cache
+        payload = {
+            "requests": requests.snapshot(),
+            "memory": memory_record(mx, peaks),
+            "metal_cache_bytes": mx.get_cache_memory(),
+            "prompt_cache": {"entries": len(cache), "bytes": cache.nbytes},
+        }
+        _send_json(self, 200, payload)
+
     handler_cls.do_POST = do_post
+    handler_cls.do_GET = do_get
+    generator_cls.generate = generate
     provider_cls.__init__ = init
     provider_cls.load_default = load_default
     generator_cls._run_generate = run_generate
@@ -352,10 +476,11 @@ def run(settings: LaunchSettings, ready_path: Path) -> None:
     mx.set_memory_limit(settings.memory_limit)
     log.info("Metal memory limit %s (watchdog enforced)", _size(settings.memory_limit))
     memory_path = paths.backend_memory()
-    install_hooks(server, mx, settings, ready_path, memory_path)
+    peaks = PeakTracker(mx)
+    install_hooks(server, mx, settings, ready_path, memory_path, peaks)
 
     def record_memory(active: int) -> None:
-        write_json(memory_path, memory_record(mx, active))
+        write_json(memory_path, memory_record(mx, peaks, active))
 
     start_watchdog(
         mx.get_active_memory, settings.memory_limit, _memory_exceeded, on_sample=record_memory
