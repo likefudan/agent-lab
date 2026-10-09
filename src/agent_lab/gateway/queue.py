@@ -47,12 +47,15 @@ class RequestQueue:
 
     def _leave(self, place: Place, start: bool = False) -> None:
         """The place stops waiting: it leaves, or (``start``) it starts running."""
+        changed = start
         if place.waiting:
             place.waiting = False
             self.waiting -= 1
+            changed = True
         if start:
             self.active += 1
-        self._changed()
+        if changed:
+            self._changed()
 
     def reserve(self) -> Place:
         """Take a place now (raises QueueFull), so that the answer to the client can be a 429."""

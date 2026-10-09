@@ -47,8 +47,9 @@ HEALTH_TIMEOUT = 1.0  # well below `alab status`'s own 2s probe of /healthz
 CONNECT_TIMEOUT = 5.0
 KEEP_ALIVE = b": keep-alive\n\n"
 RETRY_AFTER_SECONDS = 30
+# Statuses for the log only: nginx's "the client went away", and the server stopping.
 CLIENT_CLOSED = 499
-SHUTTING_DOWN = 503  # nginx's code for "the client went away", used in the log only
+SHUTTING_DOWN = 503
 SSE_HEADERS = {
     "Content-Type": "text/event-stream",
     "Cache-Control": "no-cache",
@@ -254,7 +255,7 @@ class Gateway:
                 raise BackendError(503, "the model server is not running") from None
             except httpx.ConnectTimeout:
                 raise BackendError(503, "the model server is not answering") from None
-            except (httpx.HTTPError, ValueError) as exc:
+            except (httpx.HTTPError, ValueError, RecursionError) as exc:
                 log.error("the backend connection failed: %s: %s", type(exc).__name__, exc)
                 raise BackendError(502, "the model server failed while answering") from None
         raise BackendError(502, "the model server ended the response early")
@@ -432,10 +433,17 @@ def _well_formed(chunk: Any) -> bool:
     if not isinstance(chunk, dict):
         return False
     usage = chunk.get("usage")
-    if usage is not None and not (
-        isinstance(usage, dict) and isinstance(usage.get("prompt_tokens_details") or {}, dict)
-    ):
-        return False
+    if usage is not None:
+        if not isinstance(usage, dict):
+            return False
+        details = usage.get("prompt_tokens_details") or {}
+        counts = [usage.get("prompt_tokens"), usage.get("completion_tokens")]
+        if isinstance(details, dict):
+            counts.append(details.get("cached_tokens"))
+        else:
+            return False
+        if not all(c is None or (isinstance(c, int) and not isinstance(c, bool)) for c in counts):
+            return False
     choices = chunk.get("choices") or []
     if not isinstance(choices, list):
         return False
@@ -528,21 +536,17 @@ class ChatResponse(Response):
             done, _ = await asyncio.wait({answer, watcher}, return_when=asyncio.FIRST_COMPLETED)
             if answer not in done:
                 self.record.status = CLIENT_CLOSED
+        except asyncio.CancelledError:
+            if not answer.done():
+                self.record.status = SHUTTING_DOWN  # this response is cancelled with the server
+            raise
+        finally:
             answer.cancel()
             watcher.cancel()
             results = await asyncio.gather(answer, watcher, return_exceptions=True)
-            error = results[0]
-            if isinstance(error, Exception):
-                log.error("request failed", exc_info=error)
+            if isinstance(results[0], Exception):
+                log.error("request failed", exc_info=results[0])
                 self.record.status = 500
-        except asyncio.CancelledError:
-            # This response itself is cancelled: the server is shutting down.
-            answer.cancel()
-            watcher.cancel()
-            await asyncio.gather(answer, watcher, return_exceptions=True)
-            self.record.status = SHUTTING_DOWN
-            raise
-        finally:
             self.place.give_up()  # if it never got to run
             self.record.write()
 
