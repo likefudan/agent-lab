@@ -10,7 +10,7 @@ port = 8100
 prefill_step_size = 2048
 prompt_cache_size = 1
 prompt_cache_bytes = "256MB"
-metal_memory_limit = "1.5GB"
+metal_memory_limit = "3GB"       # T06: an 8K prompt needs about 2.2GB (1.5GB stopped the backend)
 tool_parser = "auto"              # Qwen3 (not 3.5+) uses the JSON format mlx-lm detects
 enable_thinking = false
 temperature = 0.7
@@ -35,4 +35,4 @@ enabled = false
 hostname = "api.llmat.dev"
 
 [system]
-gpu_wired_limit_mb = 2048
+gpu_wired_limit_mb = 3584
