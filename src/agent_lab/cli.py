@@ -8,11 +8,13 @@ dependencies to the offline bundle and starts quickly, and subcommands
 from __future__ import annotations
 
 import argparse
+import dataclasses
 import platform
 import sys
 
 from agent_lab import __version__, config, doctor, gpulimit, paths, pull, registry, serve
 from agent_lab.backend import process
+from agent_lab.bench import runner, suites
 from agent_lab.gateway import keys
 from agent_lab.gateway import process as gateway_process
 
@@ -205,6 +207,43 @@ def _cmd_keys_revoke(args: argparse.Namespace) -> int:
     return 0
 
 
+def _sections(text: str) -> list[str]:
+    names = [name.strip() for name in text.split(",") if name.strip()]
+    unknown = [name for name in names if name not in suites.SECTIONS]
+    if unknown or not names:
+        raise argparse.ArgumentTypeError(
+            f"unknown section {', '.join(unknown) or '(none)'}; "
+            f"choose from {', '.join(suites.SECTIONS)}"
+        )
+    return [name for name in suites.SECTIONS if name in names]  # always in the usual order
+
+
+def _cmd_bench(args: argparse.Namespace) -> int:
+    plan = suites.QUICK if args.quick else suites.FULL
+    overrides = {}
+    if args.runs is not None:
+        overrides["agent_runs"] = args.runs
+    if args.sustained_minutes is not None:
+        overrides["sustained_seconds"] = args.sustained_minutes * 60
+    plan = dataclasses.replace(plan, **overrides)
+    try:
+        profile = config.load_profile(args.profile)
+        directory, result = runner.run(
+            profile, args.only or list(suites.SECTIONS), plan, "quick" if args.quick else "full"
+        )
+    except (config.ConfigError, runner.BenchError, keys.KeysError) as exc:
+        print(f"alab bench: {exc}", file=sys.stderr)
+        return 1
+    except KeyboardInterrupt:
+        print("\ninterrupted; the report so far is in var/bench/", file=sys.stderr)
+        return 130
+    print(f"\nreport: {directory / 'report.md'} (all numbers in report.json)")
+    problems = runner.failed_checks(result)
+    for problem in problems:
+        print(f"FAILED {problem}", file=sys.stderr)
+    return 1 if problems else 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="alab", description="Run Qwen3.8-27B locally with mlx-lm behind an API gateway."
@@ -282,6 +321,24 @@ def build_parser() -> argparse.ArgumentParser:
         "--force", action="store_true", help="start even if the GPU limit is below the profile's"
     )
     p.set_defaults(func=_cmd_serve)
+    p = sub.add_parser(
+        "bench", help="measure the running service through the gateway (reports in var/bench/)"
+    )
+    p.add_argument("--profile", default=config.DEFAULT_PROFILE, help="profile alab serve runs")
+    p.add_argument(
+        "--only",
+        type=_sections,
+        metavar="SECTIONS",
+        help=f"comma-separated sections to run (default: all of {','.join(suites.SECTIONS)})",
+    )
+    p.add_argument(
+        "--quick", action="store_true", help="a short run that checks the flow (CI, tiny model)"
+    )
+    p.add_argument("--runs", type=int, metavar="N", help="agent conversations (default 3)")
+    p.add_argument(
+        "--sustained-minutes", type=float, metavar="M", help="sustained load length (default 10)"
+    )
+    p.set_defaults(func=_cmd_bench)
     sub.add_parser("stop", help="stop the gateway and the backend").set_defaults(func=_cmd_stop)
     sub.add_parser(
         "status", help="show whether the backend and gateway run, memory, queue and logs"

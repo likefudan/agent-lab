@@ -7,6 +7,7 @@ import json
 import logging
 import threading
 import types
+from collections import deque
 from pathlib import Path
 from typing import Any
 
@@ -15,6 +16,8 @@ import pytest
 from agent_lab import config
 from agent_lab.backend import launch
 from agent_lab.backend.settings import launch_settings
+
+GIB = 1024**3
 
 
 class Exited(Exception):
@@ -38,6 +41,54 @@ def qwen3_coder_parser(text: str, tools: Any) -> dict[str, Any]:
 qwen3_coder_parser.__module__ = "mlx_lm.tool_parsers.qwen3_coder"
 
 
+class FakeArray:
+    def __init__(self) -> None:
+        self.evaluated = False
+
+
+class KVCache:
+    def __init__(self) -> None:
+        self.keys: FakeArray | None = FakeArray()
+        self.values: FakeArray | None = FakeArray()
+        self.offset = 10
+
+    @property
+    def state(self) -> Any:
+        return self.keys, self.values, self.offset
+
+
+class ArraysCache:
+    def __init__(self) -> None:
+        self.cache: list[Any] = [FakeArray(), None]
+
+    @property
+    def state(self) -> Any:
+        return self.cache
+
+
+class LRUPromptCache:
+    """Like mlx-lm's: keeps at most ``max_size`` entries, evicting the newest assistant entry
+    first when a user entry is also stored (the case that drops a just-stored entry)."""
+
+    def __init__(self, max_size: int = 1) -> None:
+        self.max_size = max_size
+        self._lru = types.SimpleNamespace(_lrus={"assistant": deque(), "user": deque()})
+
+    def insert_cache(
+        self,
+        model: Any,
+        tokens: list[int],
+        prompt_cache: list[Any],
+        *,
+        cache_type: str = "assistant",
+    ) -> None:
+        lrus = self._lru._lrus
+        lrus[cache_type].append((model, tokens))
+        if sum(len(lru) for lru in lrus.values()) > self.max_size:
+            victim = "assistant" if len(lrus["assistant"]) >= len(lrus["user"]) else "user"
+            lrus[victim].popleft()
+
+
 def fake_modules(fail_load: bool = False, fail_generate: bool = False) -> tuple[Any, Any]:
     class ModelProvider:
         def __init__(self, cli_args: Any) -> None:
@@ -54,19 +105,41 @@ def fake_modules(fail_load: bool = False, fail_generate: bool = False) -> tuple[
                 init_kwargs={"tool_parser_type": parser} if parser else {},
             )
 
+    class PromptCache:
+        nbytes = 1024**3
+
+        def __len__(self) -> int:
+            return 1
+
     class ResponseGenerator:
         def __init__(self) -> None:
             self._generation_failed = False
+            self.prompt_cache = PromptCache()
 
         def _run_generate(self) -> None:
             self._generation_failed = fail_generate
 
+        def generate(self, request: Any, args: Any, progress_callback: Any = None) -> Any:
+            ctx = types.SimpleNamespace(prompt=[1] * 100, prompt_cache_count=-1)
+
+            def responses() -> Any:
+                ctx.prompt_cache_count = 60  # set by the generation thread, like mlx-lm's
+                memory["active"] += 2 * 1024**3
+                memory["peak"] = max(memory["peak"], memory["active"])
+                yield "token 1"
+                memory["active"] -= 1024**3
+                yield "token 2"
+
+            return ctx, responses()
+
     class APIHandler:
-        def __init__(self, headers: dict[str, str]) -> None:
+        def __init__(self, headers: dict[str, str], path: str = "/v1/chat/completions") -> None:
             self.headers = headers
+            self.path = path
             self.wfile = io.BytesIO()
             self.sent: list[Any] = []
             self.handled = False
+            self.response_generator = ResponseGenerator()
 
         def send_response(self, code: int) -> None:
             self.sent.append(code)
@@ -80,11 +153,31 @@ def fake_modules(fail_load: bool = False, fail_generate: bool = False) -> tuple[
         def do_POST(self) -> None:
             self.handled = True
 
+        def do_GET(self) -> None:
+            self.handled = True
+
+    memory = {"active": 15 * 1024**3, "peak": 16 * 1024**3}
+
+    def reset_peak_memory() -> None:
+        memory["peak"] = memory["active"]
+
+    def evaluate(arrays: list[FakeArray]) -> None:
+        for array in arrays:
+            array.evaluated = True
+
     server = types.SimpleNamespace(
-        ModelProvider=ModelProvider, ResponseGenerator=ResponseGenerator, APIHandler=APIHandler
+        ModelProvider=ModelProvider,
+        ResponseGenerator=ResponseGenerator,
+        APIHandler=APIHandler,
+        LRUPromptCache=LRUPromptCache,
     )
     mx = types.SimpleNamespace(
-        get_active_memory=lambda: 15 * 1024**3, get_peak_memory=lambda: 16 * 1024**3
+        get_active_memory=lambda: memory["active"],
+        get_peak_memory=lambda: memory["peak"],
+        reset_peak_memory=reset_peak_memory,
+        get_cache_memory=lambda: 512 * 1024**2,
+        array=FakeArray,
+        eval=evaluate,
     )
     return server, mx
 
@@ -297,3 +390,136 @@ def test_write_json_replaces_the_file_and_leaves_no_temp_files(tmp_path: Path) -
     launch.write_json(path, {"a": 2})
     assert json.loads(path.read_text()) == {"a": 2}
     assert [p.name for p in tmp_path.iterdir()] == ["state.json"]
+
+
+def test_requests_are_recorded_for_bench(lab_home: Path, tmp_path: Path) -> None:
+    server, mx = fake_modules()
+    requests = launch.RequestLog()
+    launch.install_hooks(
+        server,
+        mx,
+        launch_settings(config.load_profile()),
+        tmp_path / "r",
+        tmp_path / "m",
+        requests=requests,
+    )
+    _, responses = server.ResponseGenerator().generate("request", "args")
+    assert list(responses) == ["token 1", "token 2"]
+    [entry] = requests.snapshot()
+    assert entry["id"] == 1
+    assert entry["prompt_tokens"] == 100 and entry["cached_tokens"] == 60
+    assert entry["generated_tokens"] == 2
+    assert entry["metal_active_before_bytes"] == 15 * GIB
+    # The peak counter was reset when the request started: 16 GB before, 17 GB during.
+    assert entry["metal_peak_bytes"] == 17 * GIB
+    assert entry["metal_active_after_bytes"] == 16 * GIB
+    assert entry["prompt_cache_before_bytes"] == GIB
+    assert entry["prompt_cache_before_entries"] == 1
+    assert 0 <= entry["first_token_seconds"] <= entry["total_seconds"]
+
+
+def test_a_request_the_client_abandons_is_still_recorded(lab_home: Path, tmp_path: Path) -> None:
+    server, mx = fake_modules()
+    requests = launch.RequestLog()
+    launch.install_hooks(
+        server,
+        mx,
+        launch_settings(config.load_profile()),
+        tmp_path / "r",
+        tmp_path / "m",
+        requests=requests,
+    )
+    _, responses = server.ResponseGenerator().generate("request", "args")
+    next(responses)
+    responses.close()  # what happens when the handler stops on a closed connection
+    [entry] = requests.snapshot()
+    assert entry["generated_tokens"] == 1
+
+
+def test_peak_tracker_keeps_the_lifetime_peak() -> None:
+    memory = {"active": 10, "peak": 50}
+
+    def reset() -> None:
+        memory["peak"] = memory["active"]
+
+    mx = types.SimpleNamespace(get_peak_memory=lambda: memory["peak"], reset_peak_memory=reset)
+    peaks = launch.PeakTracker(mx)  # type: ignore[arg-type]
+    peaks.start_window()
+    assert peaks.window() == 10
+    assert peaks.lifetime() == 50
+    memory["peak"] = 70
+    assert peaks.lifetime() == 70
+
+
+def test_request_log_keeps_the_newest() -> None:
+    log = launch.RequestLog(size=2)
+    for n in range(3):
+        log.add({"n": n})
+    assert [(e["id"], e["n"]) for e in log.snapshot()] == [(2, 1), (3, 2)]
+
+
+def test_requests_endpoint(lab_home: Path, tmp_path: Path) -> None:
+    server, mx = fake_modules()
+    requests = launch.RequestLog()
+    requests.add({"prompt_tokens": 5})
+    launch.install_hooks(
+        server,
+        mx,
+        launch_settings(config.load_profile()),
+        tmp_path / "r",
+        tmp_path / "m",
+        requests=requests,
+    )
+    handler = server.APIHandler({}, path=launch.REQUESTS_PATH)
+    handler.do_GET()
+    assert not handler.handled and handler.sent[0] == 200
+    data = json.loads(handler.wfile.getvalue())
+    assert data["requests"] == [{"id": 1, "prompt_tokens": 5}]
+    assert data["prompt_cache"] == {"entries": 1, "bytes": GIB}
+    assert data["memory"]["active_bytes"] == 15 * GIB
+    assert data["metal_cache_bytes"] == 512 * 1024**2
+
+    browser = server.APIHandler({"Origin": "https://example.com"}, path=launch.REQUESTS_PATH)
+    browser.do_GET()
+    assert browser.sent[0] == 403 and b"prompt_cache" not in browser.wfile.getvalue()
+
+    health = server.APIHandler({}, path="/health")
+    health.do_GET()
+    assert health.handled  # every other path is mlx-lm's
+
+
+def test_stored_cache_entries_are_evaluated(lab_home: Path, tmp_path: Path) -> None:
+    server, mx = fake_modules()
+    launch.install_hooks(
+        server, mx, launch_settings(config.load_profile()), tmp_path / "r", tmp_path / "m"
+    )
+    lru = server.LRUPromptCache(max_size=1)
+    kv, linear = KVCache(), ArraysCache()
+    lru.insert_cache("model", [1, 2, 3], [linear, kv])
+    assert kv.keys is not None and kv.keys.evaluated
+    assert kv.values is not None and kv.values.evaluated
+    assert linear.cache[0].evaluated and linear.cache[1] is None
+    assert list(lru._lru._lrus["assistant"]) == [("model", [1, 2, 3])]
+
+
+def test_an_entry_evicted_as_it_is_stored_is_released(lab_home: Path, tmp_path: Path) -> None:
+    server, mx = fake_modules()
+    launch.install_hooks(
+        server, mx, launch_settings(config.load_profile()), tmp_path / "r", tmp_path / "m"
+    )
+    lru = server.LRUPromptCache(max_size=1)
+    prompt_only = [KVCache()]
+    lru.insert_cache("model", [1, 2], prompt_only, cache_type="user")
+    linear, kv = ArraysCache(), KVCache()
+    lru.insert_cache("model", [1, 2, 3], [linear, kv])  # evicted at once, like mlx-lm does
+    assert list(lru._lru._lrus["user"]) == [("model", [1, 2])]
+    assert not lru._lru._lrus["assistant"]
+    assert kv.keys is None and kv.values is None
+    assert linear.cache == [None, None]
+    assert prompt_only[0].keys is not None  # the kept entry is untouched
+
+
+def test_release_cache_handles_cache_lists() -> None:
+    kv, linear = KVCache(), ArraysCache()
+    launch.release_cache(types.SimpleNamespace(caches=(kv, linear)))
+    assert kv.keys is None and kv.values is None and linear.cache == [None, None]

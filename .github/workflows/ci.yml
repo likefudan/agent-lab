@@ -67,3 +67,11 @@ jobs:
       - uses: actions/checkout@v5
       - name: T05 acceptance checks (the CI model behind the gateway)
         run: tests/gateway_acceptance.sh
+
+  bench:
+    name: Benchmark flow
+    runs-on: macos-15  # Apple Silicon (arm64)
+    steps:
+      - uses: actions/checkout@v5
+      - name: T06 acceptance checks (a quick alab bench with the CI model)
+        run: tests/bench_acceptance.sh
