@@ -19,7 +19,7 @@ This directory splits [`docs/design.md`](../design.md) into tasks that can each 
 | [T02](T02-model-registry-and-pull.md) | Model registry and downloads | T01 | Yes (download the 27B) | Merged |
 | [T03](T03-gpu-limit-and-doctor.md) | GPU memory limit and environment checks | T01 | Yes | Merged |
 | [T04](T04-mlx-backend.md) | mlx-lm backend and process management (incl. tool-call check) | T02, T03 | Yes | Merged |
-| [T05](T05-gateway.md) | OpenAI-compatible gateway (auth, limits, tool calls, heartbeats) | T04 | Yes (smoke test) | Not started |
+| [T05](T05-gateway.md) | OpenAI-compatible gateway (auth, limits, tool calls, heartbeats) | T04 | Yes (smoke test) | Merged |
 | [T06](T06-benchmark-and-profile.md) | Benchmarks and final profile | T05 | Yes (mostly on the device) | Not started |
 | [T07](T07-public-access-tunnel.md) | Public access: api.llmat.dev (Cloudflare Tunnel) | T06 | Yes, plus one Cloudflare dashboard step | Not started |
 | [T08](T08-client-integration.md) | Cursor and opencode integration | T07 | Yes (end to end) | Not started |
