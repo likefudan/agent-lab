@@ -112,6 +112,39 @@ def backend_lock() -> Path:
     return run_dir() / "backend.lock"
 
 
+def gateway_log() -> Path:
+    """The gateway's log: startup, errors and one line per request (never bodies)."""
+    return logs_dir() / "gateway.log"
+
+
+def gateway_console_log() -> Path:
+    return logs_dir() / "gateway.console.log"
+
+
+def gateway_state() -> Path:
+    """pid, port and profile of the gateway started by ``alab serve``."""
+    return run_dir() / "gateway.json"
+
+
+def gateway_ready() -> Path:
+    """Written by the gateway once its tokenizer is loaded and it is about to listen."""
+    return run_dir() / "gateway.ready.json"
+
+
+def gateway_queue() -> Path:
+    """The gateway's queue: requests running and waiting, updated on every change."""
+    return run_dir() / "gateway.queue.json"
+
+
+def gateway_lock() -> Path:
+    return run_dir() / "gateway.lock"
+
+
+def keys_file() -> Path:
+    """Hashes of the API keys (``alab keys``)."""
+    return secrets_dir() / "keys.toml"
+
+
 def bench_dir() -> Path:
     return var_dir() / "bench"
 

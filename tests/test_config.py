@@ -168,7 +168,10 @@ def test_backend_launch_fields(lab_home: Path) -> None:
     assert backend.tool_parser == "qwen3_coder"
     assert backend.enable_thinking is False
     assert (backend.temperature, backend.top_p, backend.top_k) == (0.7, 0.8, 20)
+    thinking = (backend.thinking_temperature, backend.thinking_top_p, backend.thinking_top_k)
+    assert thinking == (0.6, 0.95, 20)
     assert backend.start_timeout_seconds == 600
+    assert load_profile().gateway.model_name == "qwen3.8-27b"
 
 
 @pytest.mark.parametrize(
@@ -181,12 +184,21 @@ def test_backend_launch_fields(lab_home: Path) -> None:
         ("top_k", -1, "must be at least 0"),
         ("enable_thinking", "no", "expected true or false"),
         ("start_timeout_seconds", 0, "must be at least 1"),
+        ("thinking_temperature", 2.5, "must be between 0.0 and 2.0"),
+        ("thinking_top_k", -1, "must be at least 0"),
     ],
 )
 def test_backend_launch_fields_are_validated(key: str, value: Any, message: str) -> None:
     data = _default_data()
     data["backend"][key] = value
     assert message in _errors(data)
+
+
+@pytest.mark.parametrize("name", ["", "a b", "qwen/27b", "-x", "x" * 65])
+def test_model_name_is_validated(name: str) -> None:
+    data = _default_data()
+    data["gateway"]["model_name"] = name
+    assert "model_name" in _errors(data)
 
 
 def test_integer_temperature_is_accepted() -> None:

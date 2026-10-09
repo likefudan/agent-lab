@@ -20,12 +20,17 @@ macOS only lets the GPU wire part of unified memory, which is too little for the
 ### Running the model
 
 ```sh
-./alab serve       # starts mlx-lm on 127.0.0.1:8100 and waits until the model is loaded
-./alab status      # pid, port, memory (RSS), load time and log path
-./alab stop        # SIGTERM, then SIGKILL if it does not exit
+./alab keys create opencode   # an API key for one client; shown once, only its hash is stored
+./alab serve                  # starts mlx-lm on 127.0.0.1:8100, then the gateway on 127.0.0.1:8000
+./alab status                 # both processes: pid, port, memory, queue and log paths
+./alab stop                   # stops the gateway, then the backend
 ```
 
-`alab serve` refuses to start if the model is not downloaded, port 8100 is taken, or the GPU limit is below what the profile needs (`--force` starts anyway). Running it again while the backend runs starts nothing. The backend runs in the background with thinking off and the profile's sampling defaults; it logs to `var/logs/backend.log` (rotated daily, no request bodies). If MLX uses more memory than the profile's `metal_memory_limit`, the backend stops itself and `alab status` shows why. In this version nothing checks API keys: the backend only listens on 127.0.0.1, and the authenticated gateway comes next (T05).
+Clients use `http://127.0.0.1:8000/v1` with the model name `qwen3.8-27b` and `Authorization: Bearer <key>`; every request needs a key, including from this machine. `./alab keys list` shows the key names and `./alab keys revoke <name>` disables one at once, without a restart.
+
+`alab serve` refuses to start without an API key, if the model is not downloaded, if port 8100 or 8000 is taken, or if the GPU limit is below what the profile needs (`--force` starts anyway). Running it again while both run starts nothing. The backend runs in the background with thinking off and the profile's sampling defaults; if MLX uses more memory than the profile's `metal_memory_limit`, it stops itself and `alab status` shows why.
+
+The gateway (design section 6.3) is the only endpoint clients talk to. It counts every prompt with the model's own tokenizer and chat template and refuses one that leaves less than `min_output_tokens` of the context (`context_length_exceeded`); otherwise it lowers `max_tokens` to what fits. It forwards one request at a time, keeps up to `queue_size` waiting and answers 429 beyond that. Streaming responses start at once and carry a `: keep-alive` comment every `heartbeat_seconds` while the request waits or the prompt is processed. `reasoning_effort` (`none`, `low`, `medium`, `high`) turns thinking on per request. A client that disconnects stops its request. Logs: `var/logs/gateway.log` (one line per request with the key name, token counts and times) and `var/logs/backend.log`; neither contains request or response bodies.
 
 Everything is installed under `.tools/`, `.venv/` and `var/` in this directory; nothing is written to your home directory or shell configuration. To uninstall, delete the directory. Use `./alab` (or `source .tools/env.sh` in a shell) to run commands with the project's own environment.
 
@@ -44,7 +49,9 @@ uv run --frozen pytest
 tests/acceptance.sh          # fresh-clone, isolation and checksum checks on the current commit
 tests/models_acceptance.sh   # downloads the CI model: resume, verification and isolation checks
 tests/backend_acceptance.sh  # serves the CI model: serve, status, stop, crash and memory limit
-.venv/bin/python tests/tool_call_check.py   # tool calls, thinking and speed against a running backend
+tests/gateway_acceptance.sh  # the CI model behind the gateway, through the openai SDK
+.venv/bin/python tests/tool_call_check.py --url http://127.0.0.1:8000 --api-key <key> --model qwen3.8-27b
+                             # tool calls, thinking and speed through the gateway
 ```
 
 Registry entries are generated, not typed: `./alab models lock <id> --repo <owner/name> --write` pins the repository's current commit and records every file's size and sha256.

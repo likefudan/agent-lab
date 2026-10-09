@@ -175,7 +175,7 @@ def test_reaped_child_is_not_signalled(monkeypatch: pytest.MonkeyPatch) -> None:
     proc.wait()
     sent: list[int] = []
     monkeypatch.setattr(os, "kill", lambda pid, sig: sent.append(pid))
-    assert process._terminate(proc.pid, proc) is False
+    assert process.terminate(proc.pid, proc) is False
     assert sent == []
 
 

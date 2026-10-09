@@ -13,6 +13,8 @@ import sys
 
 from agent_lab import __version__, config, doctor, gpulimit, paths, pull, registry, serve
 from agent_lab.backend import process
+from agent_lab.gateway import keys
+from agent_lab.gateway import process as gateway_process
 
 
 def _cmd_version(args: argparse.Namespace) -> int:
@@ -130,18 +132,22 @@ def _cmd_serve(args: argparse.Namespace) -> int:
 
 
 def _cmd_stop(args: argparse.Namespace) -> int:
-    try:
-        record, was_running = process.stop()
-    except process.BackendError as exc:
-        print(f"alab stop: {exc}", file=sys.stderr)
-        return 1
-    if record is None:
-        print("backend: not running")
-    elif was_running:
-        print(f"backend: stopped (pid {record.pid})")
-    else:
-        print(f"backend: had already exited (pid {record.pid}); cleared its record")
-    return 0
+    # The gateway first, so no new request reaches a backend that is going away.
+    failed = False
+    for name, stop in (("gateway", gateway_process.stop), ("backend", process.stop)):
+        try:
+            record, was_running = stop()
+        except process.BackendError as exc:
+            print(f"alab stop: {name}: {exc}", file=sys.stderr)
+            failed = True  # still try to stop the other one
+            continue
+        if record is None:
+            print(f"{name}: not running")
+        elif was_running:
+            print(f"{name}: stopped (pid {record.pid})")
+        else:
+            print(f"{name}: had already exited (pid {record.pid}); cleared its record")
+    return 1 if failed else 0
 
 
 # Exit codes of `alab status`, as for LSB init scripts.
@@ -155,9 +161,48 @@ _STATUS_CODES = {
 
 
 def _cmd_status(args: argparse.Namespace) -> int:
-    status = process.status()
-    print("\n".join(serve.describe(status)))
-    return _STATUS_CODES[status.state]
+    backend = process.status()
+    gateway = gateway_process.status()
+    print("\n".join([*serve.describe(backend), *serve.describe_gateway(gateway)]))
+    codes = {_STATUS_CODES[backend.state], _STATUS_CODES[gateway.state]}
+    return codes.pop() if len(codes) == 1 else 1  # one running without the other is a problem
+
+
+def _cmd_keys_create(args: argparse.Namespace) -> int:
+    try:
+        key = keys.create(args.name)
+    except keys.KeysError as exc:
+        print(f"alab keys: {exc}", file=sys.stderr)
+        return 1
+    print(f"created key {args.name}; it is shown only this once, so copy it now:\n\n  {key}\n")
+    print("Clients send it as `Authorization: Bearer <key>`. It works at once, without a restart.")
+    return 0
+
+
+def _cmd_keys_list(args: argparse.Namespace) -> int:
+    try:
+        entries = keys.load()
+    except keys.KeysError as exc:
+        print(f"alab keys: {exc}", file=sys.stderr)
+        return 1
+    if not entries:
+        print("no keys; create one with ./alab keys create <name>")
+        return 0
+    width = max(len("NAME"), *(len(e.name) for e in entries))
+    print(f"{'NAME'.ljust(width)}  CREATED")
+    for entry in entries:
+        print(f"{entry.name.ljust(width)}  {entry.created}")
+    return 0
+
+
+def _cmd_keys_revoke(args: argparse.Namespace) -> int:
+    try:
+        keys.revoke(args.name)
+    except keys.KeysError as exc:
+        print(f"alab keys: {exc}", file=sys.stderr)
+        return 1
+    print(f"revoked key {args.name}; the gateway rejects it from the next request on")
+    return 0
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -218,15 +263,28 @@ def build_parser() -> argparse.ArgumentParser:
     for command in (gpu_apply, gpu_revert):
         command.add_argument("--yes", action="store_true", help="skip the confirmation prompt")
 
-    p = sub.add_parser("serve", help="start the inference backend (mlx-lm on 127.0.0.1)")
+    p = sub.add_parser("keys", help="create, list or revoke API keys for the gateway")
+    p.set_defaults(func=_cmd_keys_list)
+    keys_sub = p.add_subparsers(dest="keys_command", metavar="<command>")
+    create = keys_sub.add_parser("create", help="create a key and show it once")
+    create.add_argument("name", help="a name for the client, e.g. cursor or opencode")
+    create.set_defaults(func=_cmd_keys_create)
+    keys_sub.add_parser("list", help="list key names (the default)").set_defaults(
+        func=_cmd_keys_list
+    )
+    revoke = keys_sub.add_parser("revoke", help="delete a key; it stops working at once")
+    revoke.add_argument("name", help="the key's name")
+    revoke.set_defaults(func=_cmd_keys_revoke)
+
+    p = sub.add_parser("serve", help="start the backend (mlx-lm) and the gateway on 127.0.0.1")
     p.add_argument("--profile", default=config.DEFAULT_PROFILE, help="profile to serve")
     p.add_argument(
         "--force", action="store_true", help="start even if the GPU limit is below the profile's"
     )
     p.set_defaults(func=_cmd_serve)
-    sub.add_parser("stop", help="stop the backend").set_defaults(func=_cmd_stop)
+    sub.add_parser("stop", help="stop the gateway and the backend").set_defaults(func=_cmd_stop)
     sub.add_parser(
-        "status", help="show whether the backend runs, its memory and logs"
+        "status", help="show whether the backend and gateway run, memory, queue and logs"
     ).set_defaults(func=_cmd_status)
     return parser
 

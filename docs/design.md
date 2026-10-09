@@ -302,7 +302,7 @@ All runtime paths derive from the `AGENT_LAB_HOME` environment variable, which d
 
 **Parameters:**
 
-- `reasoning_effort`: `none` (default) / `low` / `medium` / `high`, where `high` maps to the model's `xhigh`. Converted into mlx-lm `chat_template_kwargs` [exact argument names confirmed against the model's chat template in T05].
+- `reasoning_effort`: `none` (default) / `low` / `medium` / `high`, where `high` maps to the model's `xhigh`. Converted into mlx-lm `chat_template_kwargs`: `none` is `enable_thinking=false`; the others are `enable_thinking=true` plus `reasoning_effort` = `low` / `medium` / `xhigh` [confirmed against the 27B model's `chat_template.jinja` in T05; the template rejects any other effort value]. `minimal` is accepted as `none` and `xhigh` as `high`.
 - When the client does not set sampling parameters, fill in the recommended values for thinking or non-thinking mode.
 
 **Concurrency and heartbeats:**
@@ -313,6 +313,14 @@ All runtime paths derive from the `AGENT_LAB_HOME` environment variable, which d
 - When a client disconnects, cancel the backend request and free its queue slot.
 
 **Logging:** only time, key name, prompt and output token counts, duration and status code. Request and response bodies are never logged.
+
+**Implementation notes [T05]:**
+
+- The gateway always asks mlx-lm to stream, also for non-streaming clients (it assembles their answer). mlx-lm only notices a closed connection when it writes, and a non-streaming mlx-lm response writes nothing until the end; streaming lets a disconnect stop generation at the next token.
+- Only known request fields are forwarded (messages, tools, sampling, stop, seed, logit_bias and the token limit); everything else, including mlx-lm's `adapters`, `draft_model`, `num_draft_tokens`, `role_mapping` and `chat_template_kwargs`, is dropped. `tool_choice: "none"` leaves the tools out; other `tool_choice` values have no effect (mlx-lm has none). `logprobs` is not supported.
+- The `developer` role is sent as `system`: the Qwen3.8 chat template rejects unknown roles.
+- Responses carry the public model name and no `system_fingerprint` (it names the mlx-lm version and OS). Thinking text is sent both as mlx-lm's `reasoning` and as `reasoning_content`, the name most OpenAI-compatible clients read.
+- `/healthz` needs no key: it only says `ok` or `unavailable`, and `alab tunnel check` (T07) uses it from the internet.
 
 ### 6.4 Example profile
 
@@ -332,10 +340,14 @@ enable_thinking = false           # chat template argument; thinking is off by d
 temperature = 0.7                 # sampling defaults: the model card's non-thinking values
 top_p = 0.8
 top_k = 20
+thinking_temperature = 0.6        # with thinking (reasoning_effort low/medium/high):
+thinking_top_p = 0.95             # the model card's values for precise coding tasks
+thinking_top_k = 20
 start_timeout_seconds = 600       # loading 15GB of weights from disk
 
 [gateway]
 port = 8000
+model_name = "qwen3.8-27b"        # the only name clients use (Cursor routes gpt-*/claude-* elsewhere)
 max_context = 32768               # finalized in T06; 24576 if the cache is copied
 max_output_tokens = 8192
 min_output_tokens = 1024
