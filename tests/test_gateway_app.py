@@ -110,8 +110,10 @@ def test_healthz_says_only_ok_or_unavailable(run: Running) -> None:
 def test_other_paths_are_404(run: Running, key: str) -> None:
     with client(run, key) as c:
         for path in ("/v1/completions", "/v1/embeddings", "/v1/responses", "/health", "/"):
-            assert c.post(path, json={}).status_code in {404, 405}, path
-            assert c.get(path).status_code == 404, path
+            assert c.post(path, json={}).status_code == 404, path
+            assert c.get(path).json()["error"]["message"] == f"no route for GET {path}"
+        wrong_method = c.get("/v1/chat/completions")
+        assert wrong_method.status_code == 405 and "error" in wrong_method.json()
 
 
 def test_unknown_model_is_rejected(run: Running, key: str) -> None:

@@ -36,7 +36,6 @@ _NUMBER_FIELDS = {
     "frequency_penalty": (-2.0, 2.0),
     "repetition_penalty": (0.0, 10.0),
 }
-SAMPLING_FIELDS = ("temperature", "top_p", "top_k")
 
 
 class ApiError(Exception):

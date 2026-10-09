@@ -35,7 +35,7 @@ from starlette.types import Receive, Scope, Send
 
 from agent_lab.gateway import translate
 from agent_lab.gateway.keys import KeyStore
-from agent_lab.gateway.queue import QueueFull, RequestQueue
+from agent_lab.gateway.queue import Place, QueueFull, RequestQueue
 from agent_lab.gateway.tokens import PromptCounter
 from agent_lab.gateway.translate import ApiError
 
@@ -213,11 +213,11 @@ class Gateway:
         return chunk
 
     async def backend_chunks(
-        self, body: dict[str, Any], record: RequestRecord
-    ) -> AsyncIterator[dict[str, Any]]:
+        self, body: dict[str, Any], record: RequestRecord, place: Place
+    ) -> AsyncGenerator[dict[str, Any]]:
         """Wait for the backend, then yield its stream's JSON chunks (usage included)."""
         queued = time.monotonic()
-        async with self.queue.slot():
+        async with self.queue.slot(place):
             record.queue_seconds = time.monotonic() - queued
             try:
                 async with self.client.stream("POST", "/v1/chat/completions", json=body) as resp:
@@ -249,9 +249,10 @@ class Gateway:
                             if choice.get("finish_reason"):
                                 record.finish_reason = choice["finish_reason"]
                         yield chunk
-            except httpx.ConnectError:
+            except httpx.ConnectError, httpx.ConnectTimeout:
                 raise BackendError(503, "the model server is not running") from None
-            except (httpx.HTTPError, ValueError) as exc:
+            except (httpx.HTTPError, ValueError, TypeError, AttributeError) as exc:
+                # Also chunks of an unexpected shape: a clean 502, not a broken stream.
                 log.error("the backend connection failed: %s: %s", type(exc).__name__, exc)
                 raise BackendError(502, "the model server failed while answering") from None
         raise BackendError(502, "the model server ended the response early")
@@ -301,8 +302,10 @@ class Gateway:
                 record.prompt_tokens, prepared.requested_max_tokens, self.rules.limits
             )
             prepared.body["max_tokens"] = record.max_tokens
-            if self.queue.full():
-                raise _busy()
+            try:
+                place = self.queue.reserve()
+            except QueueFull:
+                raise _busy() from None
         except ApiError as exc:
             record.status = exc.status
             record.write()
@@ -316,14 +319,13 @@ class Gateway:
             record.status = 500
             record.write()
             return error_response(ApiError(500, "internal error", type_="server_error"))
-        if prepared.stream:
-            return ChatResponse(self, prepared, record, self._stream)
-        return ChatResponse(self, prepared, record, self._complete)
+        run = self._stream if prepared.stream else self._complete
+        return ChatResponse(prepared, record, place, run)
 
     # -- the two ways of answering ---------------------------------------
 
     async def _stream(
-        self, prepared: translate.Prepared, record: RequestRecord, send: Send
+        self, prepared: translate.Prepared, record: RequestRecord, place: Place, send: Send
     ) -> None:
         await send(
             {
@@ -337,7 +339,7 @@ class Gateway:
         async def body(data: bytes) -> None:
             await send({"type": "http.response.body", "body": data, "more_body": True})
 
-        chunks = self.backend_chunks(prepared.body, record)
+        chunks = self.backend_chunks(prepared.body, record, place)
         try:
             beats = _with_heartbeats(chunks, self.settings.heartbeat_seconds, body)
             # aclosing: if sending fails, the backend stream and queue slot go at once.
@@ -355,10 +357,10 @@ class Gateway:
         await send({"type": "http.response.body", "body": b"", "more_body": False})
 
     async def _complete(
-        self, prepared: translate.Prepared, record: RequestRecord, send: Send
+        self, prepared: translate.Prepared, record: RequestRecord, place: Place, send: Send
     ) -> None:
         try:
-            result = await self._collect(prepared, record)
+            result = await self._collect(prepared, record, place)
             response: Response = JSONResponse(result)
             record.status = 200
         except (BackendError, QueueFull) as exc:
@@ -374,7 +376,9 @@ class Gateway:
         )
         await send({"type": "http.response.body", "body": response.body})
 
-    async def _collect(self, prepared: translate.Prepared, record: RequestRecord) -> dict[str, Any]:
+    async def _collect(
+        self, prepared: translate.Prepared, record: RequestRecord, place: Place
+    ) -> dict[str, Any]:
         """A non-streaming response, assembled from the backend's stream."""
         first: dict[str, Any] | None = None
         content: list[str] = []
@@ -382,7 +386,7 @@ class Gateway:
         tool_calls: list[dict[str, Any]] = []
         finish_reason = None
         usage = None
-        async for chunk in self.backend_chunks(prepared.body, record):
+        async for chunk in self.backend_chunks(prepared.body, record, place):
             first = first or chunk
             if chunk.get("usage"):
                 usage = chunk["usage"]
@@ -422,14 +426,14 @@ class Gateway:
 def _busy() -> ApiError:
     return ApiError(
         429,
-        "The server is busy with other requests; try again in a minute.",
+        f"The server is busy with other requests; try again in {RETRY_AFTER_SECONDS} seconds.",
         code="rate_limit_exceeded",
         type_="rate_limit_error",
     )
 
 
 async def _with_heartbeats(
-    chunks: AsyncIterator[dict[str, Any]],
+    chunks: AsyncGenerator[dict[str, Any]],
     interval: float,
     send: Callable[[bytes], Awaitable[None]],
 ) -> AsyncGenerator[dict[str, Any]]:
@@ -442,8 +446,11 @@ async def _with_heartbeats(
 
     async def produce() -> None:
         try:
-            async for chunk in chunks:
-                await queue.put(("chunk", chunk))
+            # aclosing: cancelled while waiting to hand over a chunk, the generator still
+            # closes here, in this task: its queue slot and backend connection go at once.
+            async with contextlib.aclosing(chunks):
+                async for chunk in chunks:
+                    await queue.put(("chunk", chunk))
             await queue.put(("end", None))
         except Exception as exc:
             await queue.put(("error", exc))
@@ -472,19 +479,19 @@ class ChatResponse(Response):
 
     def __init__(
         self,
-        gateway: Gateway,
         prepared: translate.Prepared,
         record: RequestRecord,
-        run: Callable[[translate.Prepared, RequestRecord, Send], Awaitable[None]],
+        place: Place,
+        run: Callable[[translate.Prepared, RequestRecord, Place, Send], Awaitable[None]],
     ) -> None:
         super().__init__()
-        self.gateway = gateway
         self.prepared = prepared
         self.record = record
+        self.place = place
         self.run = run
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
-        answer = asyncio.ensure_future(self.run(self.prepared, self.record, send))
+        answer = asyncio.ensure_future(self.run(self.prepared, self.record, self.place, send))
         watcher = asyncio.ensure_future(_wait_disconnect(receive))
         try:
             done, _ = await asyncio.wait({answer, watcher}, return_when=asyncio.FIRST_COMPLETED)
@@ -501,6 +508,7 @@ class ChatResponse(Response):
             # Also when this response itself is cancelled (the server shutting down).
             for task in (answer, watcher):
                 task.cancel()
+            self.place.give_up()  # if it never got to run
             self.record.write()
 
 
@@ -511,9 +519,10 @@ async def _wait_disconnect(receive: Receive) -> None:
             return
 
 
-async def _not_found(request: Request, exc: Exception) -> Response:
-    error = ApiError(404, f"no route for {request.method} {request.url.path}", type_="not_found")
-    return error_response(error)
+async def _no_route(request: Request, exc: Exception) -> Response:
+    status = getattr(exc, "status_code", 404)
+    message = f"no route for {request.method} {request.url.path}"
+    return error_response(ApiError(status, message, type_="invalid_request_error"))
 
 
 def create_app(gateway: Gateway) -> Starlette:
@@ -528,4 +537,6 @@ def create_app(gateway: Gateway) -> Starlette:
         Route("/v1/models/{model:path}", gateway.models, methods=["GET"]),
         Route("/healthz", gateway.healthz, methods=["GET"]),
     ]
-    return Starlette(routes=routes, lifespan=lifespan, exception_handlers={404: _not_found})
+    return Starlette(
+        routes=routes, lifespan=lifespan, exception_handlers={404: _no_route, 405: _no_route}
+    )

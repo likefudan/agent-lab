@@ -67,3 +67,23 @@ def test_queue_size_zero_allows_only_the_running_request() -> None:
             assert queue.full()
 
     asyncio.run(scenario())
+
+
+def test_places_are_taken_when_accepted() -> None:
+    async def scenario() -> None:
+        queue = RequestQueue(1)
+        first = queue.reserve()  # accepted, not yet running
+        second = queue.reserve()
+        assert (queue.active, queue.waiting) == (0, 2)
+        with pytest.raises(QueueFull):  # a third is refused before anything runs
+            queue.reserve()
+        second.give_up()
+        second.give_up()  # only counts once
+        assert queue.waiting == 1
+        async with queue.slot(first):
+            assert (queue.active, queue.waiting) == (1, 0)
+            first.give_up()  # no effect once running
+            assert (queue.active, queue.waiting) == (1, 0)
+        assert (queue.active, queue.waiting) == (0, 0)
+
+    asyncio.run(scenario())
