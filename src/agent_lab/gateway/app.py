@@ -47,7 +47,8 @@ HEALTH_TIMEOUT = 1.0  # well below `alab status`'s own 2s probe of /healthz
 CONNECT_TIMEOUT = 5.0
 KEEP_ALIVE = b": keep-alive\n\n"
 RETRY_AFTER_SECONDS = 30
-CLIENT_CLOSED = 499  # nginx's code for "the client went away", used in the log only
+CLIENT_CLOSED = 499
+SHUTTING_DOWN = 503  # nginx's code for "the client went away", used in the log only
 SSE_HEADERS = {
     "Content-Type": "text/event-stream",
     "Cache-Control": "no-cache",
@@ -237,7 +238,7 @@ class Gateway:
                         if data == "[DONE]":
                             return
                         chunk = json.loads(data)
-                        if not isinstance(chunk, dict):
+                        if not _well_formed(chunk):
                             raise BackendError(502, "the model server sent an invalid chunk")
                         if chunk.get("usage"):
                             usage = chunk["usage"]
@@ -249,10 +250,11 @@ class Gateway:
                             if choice.get("finish_reason"):
                                 record.finish_reason = choice["finish_reason"]
                         yield chunk
-            except httpx.ConnectError, httpx.ConnectTimeout:
+            except httpx.ConnectError:
                 raise BackendError(503, "the model server is not running") from None
-            except (httpx.HTTPError, ValueError, TypeError, AttributeError) as exc:
-                # Also chunks of an unexpected shape: a clean 502, not a broken stream.
+            except httpx.ConnectTimeout:
+                raise BackendError(503, "the model server is not answering") from None
+            except (httpx.HTTPError, ValueError) as exc:
                 log.error("the backend connection failed: %s: %s", type(exc).__name__, exc)
                 raise BackendError(502, "the model server failed while answering") from None
         raise BackendError(502, "the model server ended the response early")
@@ -350,8 +352,8 @@ class Gateway:
                         continue
                     await body(_sse(self.public_chunk(chunk)))
             await body(b"data: [DONE]\n\n")
-        except (BackendError, QueueFull) as exc:
-            error = exc.api_error() if isinstance(exc, BackendError) else _busy()
+        except BackendError as exc:
+            error = exc.api_error()
             record.status = error.status
             await body(_sse(error.body()))
         await send({"type": "http.response.body", "body": b"", "more_body": False})
@@ -363,8 +365,8 @@ class Gateway:
             result = await self._collect(prepared, record, place)
             response: Response = JSONResponse(result)
             record.status = 200
-        except (BackendError, QueueFull) as exc:
-            error = exc.api_error() if isinstance(exc, BackendError) else _busy()
+        except BackendError as exc:
+            error = exc.api_error()
             record.status = error.status
             response = error_response(error)
         await send(
@@ -386,21 +388,23 @@ class Gateway:
         tool_calls: list[dict[str, Any]] = []
         finish_reason = None
         usage = None
-        async for chunk in self.backend_chunks(prepared.body, record, place):
-            first = first or chunk
-            if chunk.get("usage"):
-                usage = chunk["usage"]
-            for choice in chunk.get("choices") or []:
-                delta = choice.get("delta") or {}
-                if delta.get("content"):
-                    content.append(delta["content"])
-                if delta.get("reasoning"):
-                    reasoning.append(delta["reasoning"])
-                for call in delta.get("tool_calls") or []:
-                    call = dict(call)
-                    call.pop("index", None)
-                    tool_calls.append(call)
-                finish_reason = choice.get("finish_reason") or finish_reason
+        chunks = self.backend_chunks(prepared.body, record, place)
+        async with contextlib.aclosing(chunks):  # slot and connection go with the generator
+            async for chunk in chunks:
+                first = first or chunk
+                if chunk.get("usage"):
+                    usage = chunk["usage"]
+                for choice in chunk.get("choices") or []:
+                    delta = choice.get("delta") or {}
+                    if delta.get("content"):
+                        content.append(delta["content"])
+                    if delta.get("reasoning"):
+                        reasoning.append(delta["reasoning"])
+                    for call in delta.get("tool_calls") or []:
+                        call = dict(call)
+                        call.pop("index", None)
+                        tool_calls.append(call)
+                    finish_reason = choice.get("finish_reason") or finish_reason
         if first is None:
             raise BackendError(502, "the model server sent no answer")
         message: dict[str, Any] = {"role": "assistant", "content": "".join(content) or None}
@@ -421,6 +425,33 @@ class Gateway:
 
     async def aclose(self) -> None:
         await self.client.aclose()
+
+
+def _well_formed(chunk: Any) -> bool:
+    """Whether a backend chunk has the shape the gateway reads (mlx-lm 0.32.0's)."""
+    if not isinstance(chunk, dict):
+        return False
+    usage = chunk.get("usage")
+    if usage is not None and not (
+        isinstance(usage, dict) and isinstance(usage.get("prompt_tokens_details") or {}, dict)
+    ):
+        return False
+    choices = chunk.get("choices") or []
+    if not isinstance(choices, list):
+        return False
+    for choice in choices:
+        if not isinstance(choice, dict):
+            return False
+        delta = choice.get("delta") or {}
+        if not isinstance(delta, dict):
+            return False
+        for key in ("content", "reasoning"):
+            if not isinstance(delta.get(key) or "", str):
+                return False
+        calls = delta.get("tool_calls") or []
+        if not isinstance(calls, list) or not all(isinstance(c, dict) for c in calls):
+            return False
+    return True
 
 
 def _busy() -> ApiError:
@@ -504,10 +535,14 @@ class ChatResponse(Response):
             if isinstance(error, Exception):
                 log.error("request failed", exc_info=error)
                 self.record.status = 500
+        except asyncio.CancelledError:
+            # This response itself is cancelled: the server is shutting down.
+            answer.cancel()
+            watcher.cancel()
+            await asyncio.gather(answer, watcher, return_exceptions=True)
+            self.record.status = SHUTTING_DOWN
+            raise
         finally:
-            # Also when this response itself is cancelled (the server shutting down).
-            for task in (answer, watcher):
-                task.cancel()
             self.place.give_up()  # if it never got to run
             self.record.write()
 
@@ -521,8 +556,13 @@ async def _wait_disconnect(receive: Receive) -> None:
 
 async def _no_route(request: Request, exc: Exception) -> Response:
     status = getattr(exc, "status_code", 404)
-    message = f"no route for {request.method} {request.url.path}"
-    return error_response(ApiError(status, message, type_="invalid_request_error"))
+    if status == 405:
+        message = f"{request.method} is not allowed on {request.url.path}"
+    else:
+        message = f"no route for {request.method} {request.url.path}"
+    response = error_response(ApiError(status, message, type_="invalid_request_error"))
+    response.headers.update(getattr(exc, "headers", None) or {})  # Allow, for a 405
+    return response
 
 
 def create_app(gateway: Gateway) -> Starlette:

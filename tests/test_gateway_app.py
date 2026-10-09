@@ -113,7 +113,8 @@ def test_other_paths_are_404(run: Running, key: str) -> None:
             assert c.post(path, json={}).status_code == 404, path
             assert c.get(path).json()["error"]["message"] == f"no route for GET {path}"
         wrong_method = c.get("/v1/chat/completions")
-        assert wrong_method.status_code == 405 and "error" in wrong_method.json()
+        assert wrong_method.status_code == 405 and wrong_method.headers["allow"] == "POST"
+        assert "is not allowed" in wrong_method.json()["error"]["message"]
 
 
 def test_unknown_model_is_rejected(run: Running, key: str) -> None:
@@ -246,6 +247,19 @@ def test_reasoning_effort(run: Running, key: str) -> None:
     response = chat(run, key, reasoning_effort="extreme")
     assert response.status_code == 400
     assert response.json()["error"]["param"] == "reasoning_effort"
+
+
+@pytest.mark.parametrize("stream", [False, True])
+def test_malformed_backend_chunks_are_a_502(run: Running, key: str, stream: bool) -> None:
+    run.backend.pieces = ["fine", 5]  # type: ignore[list-item]  # content that is not text
+    response = chat(run, key, stream=stream)
+    if stream:
+        error = events(response.text)[-1]["error"]
+    else:
+        assert response.status_code == 502
+        error = response.json()["error"]
+    assert error["message"] == "the model server sent an invalid chunk"
+    wait_for(lambda: run.gateway.queue.active == 0)
 
 
 def test_backend_error_is_reported(run: Running, key: str) -> None:

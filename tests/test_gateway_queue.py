@@ -15,7 +15,7 @@ def test_one_at_a_time_in_order_and_full() -> None:
         release = asyncio.Event()
 
         async def request(n: int) -> None:
-            async with queue.slot():
+            async with queue.slot(queue.reserve()):
                 order.append(n)
                 await release.wait()
 
@@ -24,8 +24,7 @@ def test_one_at_a_time_in_order_and_full() -> None:
         assert (queue.active, queue.waiting) == (1, 2)
         assert queue.full()
         with pytest.raises(QueueFull):
-            async with queue.slot():
-                pass
+            queue.reserve()
         release.set()
         await asyncio.gather(*tasks)
         assert order == [0, 1, 2]
@@ -41,7 +40,7 @@ def test_cancelled_waiter_gives_up_its_place() -> None:
         release = asyncio.Event()
 
         async def request() -> None:
-            async with queue.slot():
+            async with queue.slot(queue.reserve()):
                 await release.wait()
 
         first = asyncio.ensure_future(request())
@@ -63,7 +62,7 @@ def test_queue_size_zero_allows_only_the_running_request() -> None:
     async def scenario() -> None:
         queue = RequestQueue(0)
         assert not queue.full()
-        async with queue.slot():
+        async with queue.slot(queue.reserve()):
             assert queue.full()
 
     asyncio.run(scenario())

@@ -25,11 +25,8 @@ class Place:
         self.waiting = True
 
     def give_up(self) -> None:
-        """Leave the queue if still waiting; a no-op once the request has run."""
-        if self.waiting:
-            self.waiting = False
-            self.queue.waiting -= 1
-            self.queue._changed()
+        """Leave the queue if still waiting; a no-op once the request runs or has left."""
+        self.queue._leave(self)
 
 
 class RequestQueue:
@@ -48,6 +45,15 @@ class RequestQueue:
         """Whether a new request would be turned away: one running plus queue_size waiting."""
         return self.active + self.waiting >= 1 + self.queue_size
 
+    def _leave(self, place: Place, start: bool = False) -> None:
+        """The place stops waiting: it leaves, or (``start``) it starts running."""
+        if place.waiting:
+            place.waiting = False
+            self.waiting -= 1
+        if start:
+            self.active += 1
+        self._changed()
+
     def reserve(self) -> Place:
         """Take a place now (raises QueueFull), so that the answer to the client can be a 429."""
         if self.full():
@@ -57,18 +63,14 @@ class RequestQueue:
         return Place(self)
 
     @contextlib.asynccontextmanager
-    async def slot(self, place: Place | None = None) -> AsyncIterator[None]:
+    async def slot(self, place: Place) -> AsyncIterator[None]:
         """Hold the backend for the duration of the block, in arrival order."""
-        place = place or self.reserve()
         try:
             await self._lock.acquire()
         except BaseException:
             place.give_up()
             raise
-        place.waiting = False
-        self.waiting -= 1
-        self.active += 1
-        self._changed()
+        self._leave(place, start=True)
         try:
             yield
         finally:
