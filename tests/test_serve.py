@@ -91,6 +91,37 @@ def test_serve_does_not_start_a_second_backend_or_gateway(
     assert "  queue: 1 running, 2 waiting" in lines
 
 
+def test_serve_refuses_a_backend_with_another_profile(
+    lab_home: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    keys.create("test")
+    record = process.Record(123, 8100, "ci-tiny", "qwen3-0.6b-mlx-4bit", 0.0)
+    running = process.Status(process.State.RUNNING, record, None, None)
+    monkeypatch.setattr(process, "status", lambda: running)
+    monkeypatch.setattr(gateway_process, "start", no_start)
+    with pytest.raises(serve.ServeError, match="the backend runs profile ci-tiny, not mac-24gb"):
+        serve.serve(config.load_profile())
+
+
+def test_stop_tries_the_backend_when_the_gateway_fails(
+    lab_home: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    def stuck(timeout: float = 0) -> None:
+        raise process.BackendError("pid 9 did not exit after SIGKILL")
+
+    stopped: list[bool] = []
+
+    def stop_backend() -> tuple[None, bool]:
+        stopped.append(True)
+        return None, False
+
+    monkeypatch.setattr(gateway_process, "stop", stuck)
+    monkeypatch.setattr(process, "stop", stop_backend)
+    assert cli.main(["stop"]) == 1
+    assert stopped == [True]
+    assert "gateway: pid 9 did not exit" in capsys.readouterr().err
+
+
 def test_serve_refuses_without_a_key(lab_home: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(process, "start", no_start)
     with pytest.raises(serve.ServeError, match=r"(?s)no API key exists yet.*alab keys create"):

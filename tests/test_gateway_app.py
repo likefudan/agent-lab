@@ -136,8 +136,10 @@ def test_images_are_rejected(run: Running, key: str) -> None:
 
 def test_invalid_json_is_rejected(run: Running, key: str) -> None:
     with client(run, key) as c:
-        response = c.post("/v1/chat/completions", content=b"{nope")
-    assert response.status_code == 400
+        for body in (b"{nope", b"[" * 100_000):  # the second is too deep for json.loads
+            response = c.post("/v1/chat/completions", content=body)
+            assert response.status_code == 400
+            assert response.json()["error"]["message"] == "the request body is not valid JSON"
 
 
 # -- what reaches the backend ---------------------------------------------
@@ -285,6 +287,7 @@ def test_streaming_answer(run: Running, key: str) -> None:
     response = chat(run, key, stream=True, stream_options={"include_usage": True})
     usage = events(response.text)[-2]
     assert usage["choices"] == [] and usage["usage"]["prompt_tokens"] == 2
+    assert usage["object"] == "chat.completion.chunk" and usage["model"] == MODEL
 
 
 def test_heartbeats_while_queued_and_prefilling(lab_home: Path, key: str) -> None:

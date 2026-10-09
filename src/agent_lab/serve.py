@@ -139,6 +139,12 @@ def _start_backend(profile: config.Profile, force: bool) -> list[str]:
     current = process.status()
     if current.state in {process.State.RUNNING, process.State.LOADING, process.State.UNHEALTHY}:
         assert current.record is not None
+        if current.record.profile != profile.name:
+            # The gateway would count tokens and set limits for a model that is not served.
+            raise ServeError(
+                f"the backend runs profile {current.record.profile}, not {profile.name}; "
+                f"run ./alab stop first, or ./alab serve --profile {current.record.profile}"
+            )
         return [
             f"the backend is already {current.state.value} (pid {current.record.pid}); "
             "not starting another",
@@ -164,6 +170,11 @@ def _start_gateway(profile: config.Profile) -> list[str]:
     current = gateway_process.status()
     if current.state in {process.State.RUNNING, process.State.LOADING, process.State.UNHEALTHY}:
         assert current.record is not None
+        if current.record.profile != profile.name:
+            raise ServeError(
+                f"the gateway runs profile {current.record.profile}, not {profile.name}; "
+                "run ./alab stop first"
+            )
         return [
             f"the gateway is already {current.state.value} (pid {current.record.pid}); "
             "not starting another",

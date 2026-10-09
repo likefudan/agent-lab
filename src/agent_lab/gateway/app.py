@@ -22,13 +22,13 @@ import contextlib
 import json
 import logging
 import time
-from collections.abc import AsyncIterator, Awaitable, Callable
+from collections.abc import AsyncGenerator, AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import Any
 
 import httpx
 from starlette.applications import Starlette
-from starlette.requests import Request
+from starlette.requests import ClientDisconnect, Request
 from starlette.responses import JSONResponse, PlainTextResponse, Response
 from starlette.routing import Route
 from starlette.types import Receive, Scope, Send
@@ -43,9 +43,10 @@ log = logging.getLogger("agent_lab.gateway")
 request_log = logging.getLogger("agent_lab.gateway.requests")
 
 MAX_BODY_BYTES = 16 * 1024 * 1024  # a full 32K-token prompt with tools is well under 1MB
-HEALTH_TIMEOUT = 2.0
+HEALTH_TIMEOUT = 1.0  # well below `alab status`'s own 2s probe of /healthz
 CONNECT_TIMEOUT = 5.0
 KEEP_ALIVE = b": keep-alive\n\n"
+RETRY_AFTER_SECONDS = 30
 CLIENT_CLOSED = 499  # nginx's code for "the client went away", used in the log only
 SSE_HEADERS = {
     "Content-Type": "text/event-stream",
@@ -127,7 +128,12 @@ class BackendError(Exception):
         return ApiError(self.status, self.message, code=None, type_=kind)
 
 
-def error_response(error: ApiError, headers: dict[str, str] | None = None) -> JSONResponse:
+def error_response(error: ApiError) -> JSONResponse:
+    headers = None
+    if error.status == 401:
+        headers = {"WWW-Authenticate": "Bearer"}
+    elif error.status == 429:
+        headers = {"Retry-After": str(RETRY_AFTER_SECONDS)}
     return JSONResponse(error.body(), status_code=error.status, headers=headers)
 
 
@@ -183,7 +189,7 @@ class Gateway:
             chunks.append(chunk)
         try:
             return json.loads(b"".join(chunks))
-        except ValueError:
+        except ValueError, RecursionError:  # RecursionError: absurdly deep nesting
             raise ApiError(400, "the request body is not valid JSON") from None
 
     def model_entry(self) -> dict[str, Any]:
@@ -197,6 +203,7 @@ class Gateway:
     def public_chunk(self, chunk: dict[str, Any]) -> dict[str, Any]:
         """The backend's chunk as clients see it: our model name, no server details."""
         chunk["model"] = self.rules.model_name
+        chunk["object"] = "chat.completion.chunk"  # mlx-lm's usage chunk says chat.completion
         chunk.pop("system_fingerprint", None)
         for choice in chunk.get("choices") or []:
             delta = choice.get("delta")
@@ -282,6 +289,8 @@ class Gateway:
             prepared = translate.prepare(await self.read_json(request), self.rules)
             record.stream = prepared.stream
             record.effort = prepared.effort
+            if self.queue.full():
+                raise _busy()  # before the costly count; checked again after it
             try:
                 record.prompt_tokens = await asyncio.to_thread(
                     self.counter.count, prepared.messages, prepared.tools, prepared.template_args
@@ -293,19 +302,20 @@ class Gateway:
             )
             prepared.body["max_tokens"] = record.max_tokens
             if self.queue.full():
-                raise ApiError(
-                    429,
-                    "The server is busy with other requests; try again in a minute.",
-                    code="rate_limit_exceeded",
-                    type_="rate_limit_error",
-                )
+                raise _busy()
         except ApiError as exc:
             record.status = exc.status
             record.write()
-            headers = {"WWW-Authenticate": "Bearer"} if exc.status == 401 else None
-            if exc.status == 429:
-                headers = {"Retry-After": "30"}
-            return error_response(exc, headers)
+            return error_response(exc)
+        except ClientDisconnect:
+            record.status = CLIENT_CLOSED
+            record.write()
+            return Response(status_code=CLIENT_CLOSED)  # nobody is left to read it
+        except Exception:
+            log.exception("request failed")
+            record.status = 500
+            record.write()
+            return error_response(ApiError(500, "internal error", type_="server_error"))
         if prepared.stream:
             return ChatResponse(self, prepared, record, self._stream)
         return ChatResponse(self, prepared, record, self._complete)
@@ -329,11 +339,14 @@ class Gateway:
 
         chunks = self.backend_chunks(prepared.body, record)
         try:
-            async for chunk in _with_heartbeats(chunks, self.settings.heartbeat_seconds, body):
-                usage_only = not chunk.get("choices") and chunk.get("usage")
-                if usage_only and not prepared.include_usage:
-                    continue
-                await body(_sse(self.public_chunk(chunk)))
+            beats = _with_heartbeats(chunks, self.settings.heartbeat_seconds, body)
+            # aclosing: if sending fails, the backend stream and queue slot go at once.
+            async with contextlib.aclosing(beats):
+                async for chunk in beats:
+                    usage_only = not chunk.get("choices") and chunk.get("usage")
+                    if usage_only and not prepared.include_usage:
+                        continue
+                    await body(_sse(self.public_chunk(chunk)))
             await body(b"data: [DONE]\n\n")
         except (BackendError, QueueFull) as exc:
             error = exc.api_error() if isinstance(exc, BackendError) else _busy()
@@ -407,14 +420,19 @@ class Gateway:
 
 
 def _busy() -> ApiError:
-    return ApiError(429, "The server is busy; try again in a minute.", type_="rate_limit_error")
+    return ApiError(
+        429,
+        "The server is busy with other requests; try again in a minute.",
+        code="rate_limit_exceeded",
+        type_="rate_limit_error",
+    )
 
 
 async def _with_heartbeats(
     chunks: AsyncIterator[dict[str, Any]],
     interval: float,
     send: Callable[[bytes], Awaitable[None]],
-) -> AsyncIterator[dict[str, Any]]:
+) -> AsyncGenerator[dict[str, Any]]:
     """Yield from ``chunks``; whenever nothing arrives for ``interval`` seconds, send a comment.
 
     ``chunks`` runs in a task of its own (so that an httpx stream is opened and

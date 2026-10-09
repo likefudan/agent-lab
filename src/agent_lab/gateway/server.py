@@ -19,6 +19,7 @@ from typing import Any
 import uvicorn
 
 from agent_lab import config, paths, pull
+from agent_lab.backend import process
 from agent_lab.backend.launch import OFFLINE_ENV, setup_logging, write_json
 from agent_lab.backend.settings import HOST
 from agent_lab.gateway import translate
@@ -93,7 +94,6 @@ def run(profile: config.Profile) -> None:
     )
     on_queue = _queue_writer()
     gateway = Gateway(settings, KeyStore(), counter, on_queue)
-    on_queue(0, 0)
     app = create_app(gateway)
     log.info(
         "gateway for %s (%s) on %s:%d, backend %s; context %d, output up to %d, queue %d; "
@@ -117,6 +117,7 @@ def run(profile: config.Profile) -> None:
                 await task  # failed to start (port in use ...): the error is logged
                 return
             await asyncio.sleep(0.05)
+        on_queue(0, 0)  # only now: a gateway that cannot bind must not touch the files
         write_json(
             paths.gateway_ready(),
             {
@@ -153,6 +154,8 @@ def main(argv: list[str] | None = None) -> int:
         log.exception("the gateway failed")
         return 1
     finally:
-        with contextlib.suppress(OSError):
-            paths.gateway_queue().unlink(missing_ok=True)
+        # Only our own record: another gateway may be the one running.
+        if process.read_record(paths.gateway_queue(), os.getpid()) is not None:
+            with contextlib.suppress(OSError):
+                paths.gateway_queue().unlink()
     return 0

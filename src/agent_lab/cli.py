@@ -133,19 +133,21 @@ def _cmd_serve(args: argparse.Namespace) -> int:
 
 def _cmd_stop(args: argparse.Namespace) -> int:
     # The gateway first, so no new request reaches a backend that is going away.
+    failed = False
     for name, stop in (("gateway", gateway_process.stop), ("backend", process.stop)):
         try:
             record, was_running = stop()
         except process.BackendError as exc:
             print(f"alab stop: {name}: {exc}", file=sys.stderr)
-            return 1
+            failed = True  # still try to stop the other one
+            continue
         if record is None:
             print(f"{name}: not running")
         elif was_running:
             print(f"{name}: stopped (pid {record.pid})")
         else:
             print(f"{name}: had already exited (pid {record.pid}); cleared its record")
-    return 0
+    return 1 if failed else 0
 
 
 # Exit codes of `alab status`, as for LSB init scripts.
