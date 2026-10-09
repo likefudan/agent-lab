@@ -7,6 +7,8 @@ import pytest
 from agent_lab import cli, config, doctor, pull, serve
 from agent_lab.backend import process
 from agent_lab.doctor import Check, Status
+from agent_lab.gateway import keys
+from agent_lab.gateway import process as gateway_process
 
 
 @pytest.fixture
@@ -65,26 +67,57 @@ def test_low_memory_only_warns(
     assert serve.preflight(config.load_profile(), force=False) == ["free memory: 8.8 GB available"]
 
 
-def test_serve_does_not_start_a_second_backend(
-    lab_home: Path, monkeypatch: pytest.MonkeyPatch
+def no_start(*args: object, **kwargs: object) -> None:
+    raise AssertionError("must not start")
+
+
+def test_serve_does_not_start_a_second_backend_or_gateway(
+    lab_home: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
+    keys.create("test")
     record = process.Record(123, 8100, "mac-24gb", "qwen3.8-27b-mlx-4bit", 0.0)
     running = process.Status(process.State.RUNNING, record, None, 1024**3)
     monkeypatch.setattr(process, "status", lambda: running)
-
-    def no_start(*args: object, **kwargs: object) -> None:
-        raise AssertionError("must not start")
-
     monkeypatch.setattr(process, "start", no_start)
+    gateway_record = process.Record(124, 8000, "mac-24gb", "qwen3.8-27b", 0.0)
+    gateway = gateway_process.Status(
+        process.State.RUNNING, gateway_record, {}, {"active": 1, "waiting": 2}
+    )
+    monkeypatch.setattr(gateway_process, "status", lambda: gateway)
+    monkeypatch.setattr(gateway_process, "start", no_start)
     lines = serve.serve(config.load_profile())
-    assert "already running (pid 123); not starting another" in lines[0]
+    assert "backend is already running (pid 123); not starting another" in capsys.readouterr().out
+    assert "gateway is already running (pid 124); not starting another" in lines[0]
+    assert "  queue: 1 running, 2 waiting" in lines
+
+
+def test_serve_refuses_without_a_key(lab_home: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(process, "start", no_start)
+    with pytest.raises(serve.ServeError, match=r"(?s)no API key exists yet.*alab keys create"):
+        serve.serve(config.load_profile())
+
+
+def test_gateway_port_in_use_refuses(
+    lab_home: Path, ready_machine: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    keys.create("test")
+    record = process.Record(123, 8100, "mac-24gb", "qwen3.8-27b-mlx-4bit", 0.0)
+    monkeypatch.setattr(
+        process, "status", lambda: process.Status(process.State.RUNNING, record, None, None)
+    )
+    monkeypatch.setattr(doctor, "port_in_use", lambda port: port == 8000)
+    monkeypatch.setattr(doctor, "port_owner", lambda port: "nginx (pid 7)")
+    monkeypatch.setattr(gateway_process, "start", no_start)
+    with pytest.raises(serve.ServeError, match="port 8000 is already in use by nginx"):
+        serve.serve(config.load_profile())
 
 
 def test_status_exit_codes(
     lab_home: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     assert cli.main(["status"]) == 3
-    assert "backend: not running" in capsys.readouterr().out
+    out = capsys.readouterr().out
+    assert "backend: not running" in out and "gateway: not running" in out
     record = process.Record(123, 8100, "mac-24gb", "qwen3.8-27b-mlx-4bit", 0.0)
     exited = process.Status(process.State.EXITED, record, None, None)
     monkeypatch.setattr(process, "status", lambda: exited)
@@ -94,14 +127,26 @@ def test_status_exit_codes(
     assert "var/logs/backend.log" in out
 
 
+def test_status_backend_without_gateway_is_a_problem(
+    lab_home: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    record = process.Record(123, 8100, "mac-24gb", "qwen3.8-27b-mlx-4bit", 0.0)
+    running = process.Status(process.State.RUNNING, record, None, None)
+    monkeypatch.setattr(process, "status", lambda: running)
+    assert cli.main(["status"]) == 1
+    assert "gateway: not running" in capsys.readouterr().out
+
+
 def test_stop_when_nothing_runs(lab_home: Path, capsys: pytest.CaptureFixture[str]) -> None:
     assert cli.main(["stop"]) == 0
-    assert "backend: not running" in capsys.readouterr().out
+    out = capsys.readouterr().out
+    assert out.splitlines() == ["gateway: not running", "backend: not running"]
 
 
 def test_serve_reports_preflight_errors(
     lab_home: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
+    keys.create("test")
     monkeypatch.setattr(pull, "local_state", lambda entry: pull.LocalState.NOT_DOWNLOADED)
     assert cli.main(["serve"]) == 1
     assert "alab serve: model qwen3.8-27b-mlx-4bit is not downloaded" in capsys.readouterr().err

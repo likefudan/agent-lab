@@ -5,6 +5,15 @@ description = "Self-contained local LLM serving on Apple Silicon: Qwen3.8-27B wi
 readme = "README.md"
 requires-python = "==3.14.*"
 dependencies = [
+    # The gateway (T05): an ASGI app served by uvicorn, forwarding to the backend with httpx.
+    "httpx>=0.28.1",
+    "starlette>=0.52",
+    "uvicorn>=0.40",
+    # The gateway counts prompt tokens with the model's own tokenizer and chat template.
+    # mlx-lm already depends on it on macOS; listed here so the gateway and its tests
+    # also run on Linux. Must stay within mlx-lm's own requirement.
+    "transformers>=5.7,<6",
+    "jinja2>=3.1",  # transformers renders chat templates with it but does not require it
     # transformers 5.x (needed by mlx-lm) requires huggingface-hub below 2.0.
     "huggingface-hub>=1.33.0,<2",
     # Pinned exactly: MLX reads Metal's recommended working set (T03) and T04's
@@ -21,6 +30,8 @@ alab = "agent_lab.cli:main"
 [dependency-groups]
 dev = [
     "mypy>=2.4.0",
+    # The official SDK, for the gateway's integration test (T05).
+    "openai>=2.0",
     "pytest>=9.1.1",
     "ruff>=0.16.10",
 ]

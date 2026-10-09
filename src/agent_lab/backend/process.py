@@ -111,7 +111,8 @@ def process_command(pid: int) -> str | None:
     return command or None
 
 
-def is_backend(pid: int) -> bool:
+def runs_module(pid: int, module: str) -> bool:
+    """Whether ``pid`` is a live process whose command line names ``module``."""
     try:
         os.kill(pid, 0)  # cheap existence check before running ps
     except ProcessLookupError:
@@ -119,7 +120,11 @@ def is_backend(pid: int) -> bool:
     except PermissionError:
         pass  # exists but belongs to someone else; ps decides
     command = process_command(pid)
-    return command is not None and LAUNCH_MODULE in command
+    return command is not None and module in command.split()
+
+
+def is_backend(pid: int) -> bool:
+    return runs_module(pid, LAUNCH_MODULE)
 
 
 def rss_bytes(pid: int) -> int | None:
@@ -137,10 +142,10 @@ def rss_bytes(pid: int) -> int | None:
 _LOCAL_OPENER = urllib.request.build_opener(urllib.request.ProxyHandler({}))
 
 
-def health(port: int) -> int | None:
-    """HTTP status of the backend's /health, or None if nothing answers."""
+def health(port: int, path: str = "/health") -> int | None:
+    """HTTP status of the backend's /health (or another path), or None if nothing answers."""
     try:
-        with _LOCAL_OPENER.open(f"http://{HOST}:{port}/health", timeout=HEALTH_TIMEOUT) as response:
+        with _LOCAL_OPENER.open(f"http://{HOST}:{port}{path}", timeout=HEALTH_TIMEOUT) as response:
             status: int = response.status
             return status
     except urllib.error.HTTPError as exc:
@@ -150,10 +155,10 @@ def health(port: int) -> int | None:
 
 
 def _read_ready(pid: int) -> dict[str, Any] | None:
-    return _read_record(paths.backend_ready(), pid)
+    return read_record(paths.backend_ready(), pid)
 
 
-def _read_record(path: Path, pid: int) -> dict[str, Any] | None:
+def read_record(path: Path, pid: int) -> dict[str, Any] | None:
     try:
         data = json.loads(path.read_text())
     except OSError, ValueError:
@@ -175,7 +180,7 @@ def status() -> Status:
         state = State.LOADING
     else:
         state = State.RUNNING if health(record.port) == 200 else State.UNHEALTHY
-    memory = _read_record(paths.backend_memory(), record.pid)
+    memory = read_record(paths.backend_memory(), record.pid)
     return Status(state, record, ready, rss_bytes(record.pid), memory)
 
 
@@ -262,13 +267,13 @@ def start(
         try:
             record.save(paths.backend_state())
         except BaseException:
-            _terminate(proc.pid, proc)
+            terminate(proc.pid, proc)
             raise
     try:
         return _wait_ready(proc, record, timeout, progress), True
     except BaseException:
         with _locked():
-            _terminate(proc.pid, proc)
+            terminate(proc.pid, proc)
             if Record.load(paths.backend_state()) == record:
                 _clear_files()
         raise
@@ -288,7 +293,7 @@ def _wait_ready(
             raise _failure(f"the backend exited with status {code} while starting")
         ready = _read_ready(record.pid)
         if ready is not None and health(record.port) == 200:
-            memory = _read_record(paths.backend_memory(), record.pid)
+            memory = read_record(paths.backend_memory(), record.pid)
             return Status(State.RUNNING, record, ready, rss_bytes(record.pid), memory)
         now = time.monotonic()
         if now > deadline:
@@ -299,31 +304,39 @@ def _wait_ready(
         time.sleep(POLL_INTERVAL)
 
 
-def _wait_exit(pid: int, proc: subprocess.Popen[bytes] | None, timeout: float) -> bool:
+def _wait_exit(
+    pid: int, proc: subprocess.Popen[bytes] | None, timeout: float, alive: Callable[[int], bool]
+) -> bool:
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         if proc is not None:
             if proc.poll() is not None:
                 return True
-        elif not is_backend(pid):
+        elif not alive(pid):
             return True
         time.sleep(0.25)
     return False
 
 
-def _terminate(
-    pid: int, proc: subprocess.Popen[bytes] | None, timeout: float = STOP_TIMEOUT
+def terminate(
+    pid: int,
+    proc: subprocess.Popen[bytes] | None,
+    timeout: float = STOP_TIMEOUT,
+    alive: Callable[[int], bool] = is_backend,
 ) -> bool:
-    """SIGTERM, then SIGKILL after ``timeout``. Returns True if SIGKILL was needed."""
+    """SIGTERM, then SIGKILL after ``timeout``. Returns True if SIGKILL was needed.
+
+    Without ``proc``, ``alive`` tells whether ``pid`` is still the process to stop.
+    """
     if proc is not None and proc.poll() is not None:
         return False  # already reaped: its pid may belong to another process by now
     with contextlib.suppress(ProcessLookupError):
         os.kill(pid, signal.SIGTERM)
-    if _wait_exit(pid, proc, timeout):
+    if _wait_exit(pid, proc, timeout, alive):
         return False
     with contextlib.suppress(ProcessLookupError):
         os.kill(pid, signal.SIGKILL)
-    if not _wait_exit(pid, proc, 5.0):
+    if not _wait_exit(pid, proc, 5.0, alive):
         raise BackendError(f"pid {pid} did not exit after SIGKILL")
     return True
 
@@ -340,6 +353,6 @@ def stop(timeout: float = STOP_TIMEOUT) -> tuple[Record | None, bool]:
             return None, False
         running = is_backend(record.pid)
         if running:
-            _terminate(record.pid, None, timeout)
+            terminate(record.pid, None, timeout)
         _clear_files()
         return record, running

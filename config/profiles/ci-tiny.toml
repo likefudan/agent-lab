@@ -16,10 +16,14 @@ enable_thinking = false
 temperature = 0.7
 top_p = 0.8
 top_k = 20
+thinking_temperature = 0.6        # with thinking (reasoning_effort low/medium/high):
+thinking_top_p = 0.95             # the model card's values for precise coding tasks
+thinking_top_k = 20
 start_timeout_seconds = 300
 
 [gateway]
 port = 8000
+model_name = "qwen3-0.6b"
 max_context = 8192
 max_output_tokens = 1024
 min_output_tokens = 256

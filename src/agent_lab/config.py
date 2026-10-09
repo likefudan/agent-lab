@@ -31,6 +31,7 @@ _SIZE_RE = re.compile(r"\s*(\d+(?:\.\d+)?)\s*([A-Za-z]+)\s*")
 _HOSTNAME_RE = re.compile(r"(?=.{1,253}\Z)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}")
 _PROFILE_NAME_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
 _TOOL_PARSER_RE = re.compile(r"[a-z][a-z0-9_]*")
+_MODEL_NAME_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}")
 
 
 class ConfigError(Exception):
@@ -62,12 +63,16 @@ class BackendConfig:
     temperature: float
     top_p: float
     top_k: int
+    thinking_temperature: float
+    thinking_top_p: float
+    thinking_top_k: int
     start_timeout_seconds: int
 
 
 @dataclass(frozen=True)
 class GatewayConfig:
     port: int
+    model_name: str  # the only model name clients see and send
     max_context: int
     max_output_tokens: int
     min_output_tokens: int
@@ -198,6 +203,12 @@ def _check_hostname(value: str) -> str | None:
     return f'"{value}" is not a valid hostname (expected something like "api.example.com")'
 
 
+def _check_model_name(value: str) -> str | None:
+    if _MODEL_NAME_RE.fullmatch(value):
+        return None
+    return f'"{value}" is not a model name (letters, digits, ".", "-" and "_", e.g. "qwen3.8-27b")'
+
+
 def _check_tool_parser(value: str) -> str | None:
     if _TOOL_PARSER_RE.fullmatch(value):
         return None
@@ -227,6 +238,9 @@ def parse_profile(name: str, path: Path, data: dict[str, Any]) -> Profile:
         temperature=s.number("temperature", 0.0, 2.0),
         top_p=s.number("top_p", 0.0, 1.0),
         top_k=s.integer("top_k", 0),
+        thinking_temperature=s.number("thinking_temperature", 0.0, 2.0),
+        thinking_top_p=s.number("thinking_top_p", 0.0, 1.0),
+        thinking_top_k=s.integer("thinking_top_k", 0),
         start_timeout_seconds=s.integer("start_timeout_seconds", 1),
     )
     s.finish()
@@ -234,6 +248,7 @@ def parse_profile(name: str, path: Path, data: dict[str, Any]) -> Profile:
     s = _Section("gateway", data.get("gateway"), errors)
     gateway = GatewayConfig(
         port=s.integer("port", 1024, 65535),
+        model_name=s.string("model_name", _check_model_name),
         max_context=s.integer("max_context", 1),
         max_output_tokens=s.integer("max_output_tokens", 1),
         min_output_tokens=s.integer("min_output_tokens", 1),
