@@ -96,6 +96,8 @@ def _prefill(section: dict[str, Any]) -> list[str]:
             "Time to first token",
             "Prefill",
             "Prefill tok/s",
+            "Stored entry",
+            "Metal before",
             "Metal peak",
             "Swap",
         ],
@@ -107,6 +109,8 @@ def _prefill(section: dict[str, Any]) -> list[str]:
                 _seconds(r["first_output_seconds"]),
                 _seconds(r["prefill_seconds"]),
                 _rate(r["prefill_tokens_per_second"]),
+                _gb(r["prompt_cache_before_bytes"]),
+                _gb(r["metal_active_before_bytes"]),
                 _gb(r["metal_peak_bytes"]),
                 _gb(r["swap_max_bytes"]),
             ]

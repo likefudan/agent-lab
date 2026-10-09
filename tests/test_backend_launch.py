@@ -7,6 +7,7 @@ import json
 import logging
 import threading
 import types
+from collections import deque
 from pathlib import Path
 from typing import Any
 
@@ -38,6 +39,54 @@ def qwen3_coder_parser(text: str, tools: Any) -> dict[str, Any]:
 
 
 qwen3_coder_parser.__module__ = "mlx_lm.tool_parsers.qwen3_coder"
+
+
+class FakeArray:
+    def __init__(self) -> None:
+        self.evaluated = False
+
+
+class KVCache:
+    def __init__(self) -> None:
+        self.keys: FakeArray | None = FakeArray()
+        self.values: FakeArray | None = FakeArray()
+        self.offset = 10
+
+    @property
+    def state(self) -> Any:
+        return self.keys, self.values, self.offset
+
+
+class ArraysCache:
+    def __init__(self) -> None:
+        self.cache: list[Any] = [FakeArray(), None]
+
+    @property
+    def state(self) -> Any:
+        return self.cache
+
+
+class LRUPromptCache:
+    """Like mlx-lm's: keeps at most ``max_size`` entries, evicting the newest assistant entry
+    first when a user entry is also stored (the case that drops a just-stored entry)."""
+
+    def __init__(self, max_size: int = 1) -> None:
+        self.max_size = max_size
+        self._lru = types.SimpleNamespace(_lrus={"assistant": deque(), "user": deque()})
+
+    def insert_cache(
+        self,
+        model: Any,
+        tokens: list[int],
+        prompt_cache: list[Any],
+        *,
+        cache_type: str = "assistant",
+    ) -> None:
+        lrus = self._lru._lrus
+        lrus[cache_type].append((model, tokens))
+        if sum(len(lru) for lru in lrus.values()) > self.max_size:
+            victim = "assistant" if len(lrus["assistant"]) >= len(lrus["user"]) else "user"
+            lrus[victim].popleft()
 
 
 def fake_modules(fail_load: bool = False, fail_generate: bool = False) -> tuple[Any, Any]:
@@ -112,14 +161,23 @@ def fake_modules(fail_load: bool = False, fail_generate: bool = False) -> tuple[
     def reset_peak_memory() -> None:
         memory["peak"] = memory["active"]
 
+    def evaluate(arrays: list[FakeArray]) -> None:
+        for array in arrays:
+            array.evaluated = True
+
     server = types.SimpleNamespace(
-        ModelProvider=ModelProvider, ResponseGenerator=ResponseGenerator, APIHandler=APIHandler
+        ModelProvider=ModelProvider,
+        ResponseGenerator=ResponseGenerator,
+        APIHandler=APIHandler,
+        LRUPromptCache=LRUPromptCache,
     )
     mx = types.SimpleNamespace(
         get_active_memory=lambda: memory["active"],
         get_peak_memory=lambda: memory["peak"],
         reset_peak_memory=reset_peak_memory,
         get_cache_memory=lambda: 512 * 1024**2,
+        array=FakeArray,
+        eval=evaluate,
     )
     return server, mx
 
@@ -428,3 +486,40 @@ def test_requests_endpoint(lab_home: Path, tmp_path: Path) -> None:
     health = server.APIHandler({}, path="/health")
     health.do_GET()
     assert health.handled  # every other path is mlx-lm's
+
+
+def test_stored_cache_entries_are_evaluated(lab_home: Path, tmp_path: Path) -> None:
+    server, mx = fake_modules()
+    launch.install_hooks(
+        server, mx, launch_settings(config.load_profile()), tmp_path / "r", tmp_path / "m"
+    )
+    lru = server.LRUPromptCache(max_size=1)
+    kv, linear = KVCache(), ArraysCache()
+    lru.insert_cache("model", [1, 2, 3], [linear, kv])
+    assert kv.keys is not None and kv.keys.evaluated
+    assert kv.values is not None and kv.values.evaluated
+    assert linear.cache[0].evaluated and linear.cache[1] is None
+    assert list(lru._lru._lrus["assistant"]) == [("model", [1, 2, 3])]
+
+
+def test_an_entry_evicted_as_it_is_stored_is_released(lab_home: Path, tmp_path: Path) -> None:
+    server, mx = fake_modules()
+    launch.install_hooks(
+        server, mx, launch_settings(config.load_profile()), tmp_path / "r", tmp_path / "m"
+    )
+    lru = server.LRUPromptCache(max_size=1)
+    prompt_only = [KVCache()]
+    lru.insert_cache("model", [1, 2], prompt_only, cache_type="user")
+    linear, kv = ArraysCache(), KVCache()
+    lru.insert_cache("model", [1, 2, 3], [linear, kv])  # evicted at once, like mlx-lm does
+    assert list(lru._lru._lrus["user"]) == [("model", [1, 2])]
+    assert not lru._lru._lrus["assistant"]
+    assert kv.keys is None and kv.values is None
+    assert linear.cache == [None, None]
+    assert prompt_only[0].keys is not None  # the kept entry is untouched
+
+
+def test_release_cache_handles_cache_lists() -> None:
+    kv, linear = KVCache(), ArraysCache()
+    launch.release_cache(types.SimpleNamespace(caches=(kv, linear)))
+    assert kv.keys is None and kv.values is None and linear.cache == [None, None]

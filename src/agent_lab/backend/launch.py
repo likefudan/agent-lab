@@ -30,6 +30,8 @@ Three small hooks adapt mlx-lm 0.32.0 (pinned in ``pyproject.toml``):
   ``/health`` already answers while the model is still loading);
 - if the model fails to load or the generation thread dies, the process exits
   instead of staying up and failing every request;
+- prompt cache entries are evaluated when stored, and an entry evicted the
+  moment it is stored gives its memory back at once (see ``install_cache_hooks``);
 - each request's timing, prompt cache use and peak Metal memory are kept for
   ``GET /agent-lab/requests``, which ``alab bench`` reads (T06). MLX's peak
   counter is reset when a request starts, which is exact because the backend
@@ -302,6 +304,61 @@ def _send_json(handler: Any, code: int, payload: Any) -> None:
 _BROWSER_REFUSED = {"error": {"message": "browser requests are not accepted"}}
 
 
+def _arrays(value: Any, array_type: type) -> list[Any]:
+    """The MLX arrays in a cache's ``state`` (nested tuples and lists, Nones and ints skipped)."""
+    if isinstance(value, array_type):
+        return [value]
+    if isinstance(value, list | tuple):
+        return [a for item in value for a in _arrays(item, array_type)]
+    return []
+
+
+def release_cache(cache: Any) -> None:
+    """Drop a cache's arrays (KVCache keys and values, ArraysCache states, CacheList parts)."""
+    for part in getattr(cache, "caches", ()):
+        release_cache(part)
+    for name in ("keys", "values"):
+        if getattr(cache, name, None) is not None:
+            setattr(cache, name, None)
+    states = getattr(cache, "cache", None)
+    if isinstance(states, list):
+        cache.cache = [None] * len(states)
+
+
+def install_cache_hooks(server: ModuleType, mx: ModuleType) -> None:
+    """Keep the prompt cache from holding more memory than its entries need (T06).
+
+    mlx-lm 0.32.0's batch generator stores caches it extracts with lazy
+    ``mx.contiguous`` slices of its own buffers, so an unevaluated entry keeps
+    the whole batch buffer alive after the request ends. Evaluating an entry
+    as it is stored lets those buffers go. And with ``--prompt-cache-size 1``
+    an entry can be evicted the moment it is stored (the server keeps the
+    prompt-only entry and drops the one with the answer); the server's
+    generation loop still references the evicted cache until the next
+    request, so its arrays are released here instead of staying in memory.
+    """
+    cache_cls = server.LRUPromptCache
+    original_insert = cache_cls.insert_cache
+
+    def insert_cache(
+        self: Any, model: Any, tokens: list[int], prompt_cache: list[Any], **kwargs: Any
+    ) -> None:
+        arrays = [a for c in prompt_cache for a in _arrays(c.state, mx.array)]
+        if arrays:
+            mx.eval(arrays)
+        original_insert(self, model, tokens, prompt_cache, **kwargs)
+        kept = any(
+            entry_model == model and entry_tokens == tokens
+            for lru in self._lru._lrus.values()
+            for entry_model, entry_tokens in lru
+        )
+        if not kept:
+            for cache in prompt_cache:
+                release_cache(cache)
+
+    cache_cls.insert_cache = insert_cache
+
+
 def install_hooks(
     server: ModuleType,
     mx: ModuleType,
@@ -436,6 +493,7 @@ def install_hooks(
     handler_cls.do_POST = do_post
     handler_cls.do_GET = do_get
     generator_cls.generate = generate
+    install_cache_hooks(server, mx)
     provider_cls.__init__ = init
     provider_cls.load_default = load_default
     generator_cls._run_generate = run_generate

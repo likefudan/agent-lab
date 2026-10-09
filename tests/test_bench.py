@@ -253,3 +253,37 @@ def test_bench_needs_a_running_service(lab_home: Path) -> None:
     with pytest.raises(runner.BenchError, match="start both first"):
         runner.run(config.load_profile("ci-tiny"), ["offline"], suites.QUICK, "quick")
     assert not keys.load()  # no key was left behind
+
+
+def test_sections_after_the_backend_stops_are_skipped(
+    lab_home: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    record = argparse.Namespace(pid=1, port=8000)
+    status = argparse.Namespace(record=record, ready={})
+    monkeypatch.setattr(runner, "_running", lambda profile: (status, status))
+    monkeypatch.setattr(runner, "environment", lambda *args: ({"profile": "ci-tiny"}, None))
+    ran: list[str] = []
+
+    def section(name: str) -> Any:
+        def run(ctx: suites.Context) -> dict[str, Any]:
+            ran.append(name)
+            return {"failed": f"{name} ran"}  # renders without numbers
+
+        return run
+
+    monkeypatch.setattr(suites, "RUNNERS", {name: section(name) for name in suites.SECTIONS})
+    alive = iter([True, False])
+    directory, result = runner.run(
+        config.load_profile("ci-tiny"),
+        ["cache", "prefill", "decode"],
+        suites.QUICK,
+        "quick",
+        log=lambda line: None,
+        counter=WordCounter(),
+        backend_alive=lambda: next(alive, False),
+    )
+    assert ran == ["cache"]
+    assert result["sections"]["prefill"] == {"failed": "skipped: the backend is no longer running"}
+    assert (directory / "report.md").exists()
+    assert runner.failed_checks(result)[1].startswith("prefill: skipped")
+    assert not keys.load()  # the temporary key was revoked

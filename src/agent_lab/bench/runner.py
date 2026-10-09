@@ -135,10 +135,16 @@ def run(
     plan_name: str,
     log: Callable[[str], None] = print,
     counter: PromptCounter | None = None,
+    backend_alive: Callable[[], bool] | None = None,
 ) -> tuple[Path, dict[str, Any]]:
     """Run the sections in order; returns the report directory and the report."""
     backend, gateway = _running(profile)
     assert backend.record is not None and gateway.record is not None
+    if backend_alive is None:
+
+        def backend_alive() -> bool:
+            return process.status().state is process.State.RUNNING
+
     stamp = datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
     directory = paths.bench_dir() / stamp
     log("loading the tokenizer to size the prompts ...")
@@ -172,6 +178,11 @@ def run(
     )
     try:
         for name in sections:
+            if backend_alive is not None and not backend_alive():
+                # Every later request would fail the same way; say why once.
+                result["sections"][name] = {"failed": "skipped: the backend is no longer running"}
+                log(f"== {name}: skipped, the backend is no longer running (see ./alab status)")
+                continue
             log(f"== {name}")
             try:
                 result["sections"][name] = suites.RUNNERS[name](ctx)
