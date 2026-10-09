@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import contextlib
 import fcntl
-import os
 import subprocess
 import sys
 import time
@@ -108,7 +107,7 @@ def start(
                 stdin=subprocess.DEVNULL,
                 stdout=out,
                 stderr=subprocess.STDOUT,
-                env={**os.environ, "AGENT_LAB_HOME": str(paths.home())},
+                env=process.child_env(),  # offline Hugging Face settings, as for the backend
                 cwd=paths.home(),
                 start_new_session=True,
             )

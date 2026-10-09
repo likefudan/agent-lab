@@ -30,6 +30,7 @@ def test_start_status_stop(gateway: None) -> None:
     port = free_port()
     status, created = process.start("ci-tiny", port, "m", 20, command(port, "ok"))
     assert created and status.state is State.RUNNING  # /healthz answers, even if 503
+    assert status.ready is not None and status.ready["hf_hub_offline"] == "1"
     assert status.record is not None
     pid = status.record.pid
     now = process.status()

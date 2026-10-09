@@ -19,7 +19,7 @@ from typing import Any
 import uvicorn
 
 from agent_lab import config, paths, pull
-from agent_lab.backend.launch import setup_logging, write_json
+from agent_lab.backend.launch import OFFLINE_ENV, setup_logging, write_json
 from agent_lab.backend.settings import HOST
 from agent_lab.gateway import translate
 from agent_lab.gateway.app import Gateway, GatewaySettings, create_app
@@ -144,6 +144,7 @@ def main(argv: list[str] | None = None) -> int:
     except config.ConfigError as exc:
         print(f"gateway: {exc}", file=sys.stderr)
         return EXIT_CONFIG
+    os.environ.update(OFFLINE_ENV)  # before transformers loads huggingface_hub
     setup_logging(paths.gateway_log())
     logging.getLogger("httpx").setLevel(logging.WARNING)  # a line per backend call is noise
     try:

@@ -34,5 +34,7 @@ class Handler(BaseHTTPRequestHandler):
 server = HTTPServer(("127.0.0.1", port), Handler)
 time.sleep(0.2)
 (run / "gateway.queue.json").write_text(json.dumps({"pid": os.getpid(), "active": 0, "waiting": 0}))
-(run / "gateway.ready.json").write_text(json.dumps({"pid": os.getpid(), "model_name": "m"}))
+offline = os.environ.get("HF_HUB_OFFLINE")
+ready = {"pid": os.getpid(), "model_name": "m", "hf_hub_offline": offline}
+(run / "gateway.ready.json").write_text(json.dumps(ready))
 server.serve_forever()
